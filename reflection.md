@@ -17,9 +17,8 @@ After looking at the code, the score is calculated so weird!
 4. Each mention of "Attempts" shows something different. Ex: upon first running the game (Normal Difficulty by default), in Settings it shows 8 Attempts, on the instructions of the game right under "Make a guess" it says "Guess a number between 1 and 100. Attempts left:  7", and on the Developer Debug Info tab it said the player has 1 Attempt (no guessing has been done yet).
 5. When a user guesses a number outside of 1-100 there is no error message for that. The game reads it as a regular guess.
 6. Difficulty isn't working as intended. The code shows that the secret number should be in between different ranges, but the game doesn't account for this (Ex: Difficulty: Hard (Max should be 50); Secret: 54). The Settings bar on the side shows the expected range, but the info banner under "Make a guess" doesn't show the new range, even though the number of allowed attempts on the banner gets updated upon difficulty change.
-7. The app doesn't account for if the player submits the same guess. (Let the player know they already guessed this number; don't add an attempt)
-8. The Developer Debug Info tab is lagged behind. So if player wins on second try, the stats shown in the dev tab are one guess behind.
-9. Changing the difficulty doesn't automatically start a new game. Ex: once launching the game the difficulty is normal, secret number is 90. I change the difficulty to easy, the secret number is still 90.
+7. The Developer Debug Info tab is lagged behind. So if player wins on second try, the stats shown in the dev tab are one guess behind.
+8. Changing the difficulty doesn't automatically start a new game. Ex: once launching the game the difficulty is normal, secret number is 90. I change the difficulty to easy, the secret number is still 90.
 
 **Bug Reproduction Log**
 
