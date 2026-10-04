@@ -59,21 +59,10 @@ def check_guess(guess, secret):
         return "Too Low", "📈 Go HIGHER!"
 
 
-# FIX: Moved from app.py into logic_utils.py (refactor step 4). Claude showed the change, I approved it, then Claude applied it with the body unchanged. I chose to leave the odd scoring rules as they are for now.
+# FIX: Moved from app.py into logic_utils.py (refactor step 4), then the scoring was simplified: a round starts at 100, every wrong guess costs 5 (never below 0), and a win keeps whatever is left. This removed the double penalty from the old win bonus. I suggested the "start at 100 and go down" idea, Claude proposed the code, I approved it, then Claude applied it.
 def update_score(current_score: int, outcome: str, attempt_number: int):
     """Update score based on outcome and attempt number."""
-    if outcome == "Win":
-        points = 100 - 10 * (attempt_number + 1)
-        if points < 10:
-            points = 10
-        return current_score + points
-
-    if outcome == "Too High":
-        if attempt_number % 2 == 0:
-            return current_score + 5
-        return current_score - 5
-
-    if outcome == "Too Low":
-        return current_score - 5
+    if outcome in ("Too High", "Too Low"):
+        return max(current_score - 5, 0)
 
     return current_score

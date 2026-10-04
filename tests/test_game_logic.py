@@ -1,4 +1,4 @@
-from logic_utils import check_guess
+from logic_utils import check_guess, update_score
 from streamlit.testing.v1 import AppTest
 
 def test_winning_guess():
@@ -34,13 +34,13 @@ def _lose_a_game():
 def test_new_game_resets_state_after_game_over():
     at = _lose_a_game()
     assert at.session_state["history"] != []
-    assert at.session_state["score"] != 0
+    assert at.session_state["score"] != 100
 
     at.button[NEW_GAME].click().run()
 
     assert not at.exception
     assert at.session_state["attempts"] == 0
-    assert at.session_state["score"] == 0
+    assert at.session_state["score"] == 100
     assert at.session_state["history"] == []
     assert at.session_state["status"] == "playing"
     assert not at.error  # no "Game over. Start a new game..." message
@@ -65,3 +65,18 @@ def test_new_game_secret_respects_difficulty():
     for _ in range(30):
         at.button[NEW_GAME].click().run()
         assert 1 <= at.session_state["secret"] <= 20
+
+
+def test_win_keeps_score():
+    assert update_score(100, "Win", 1) == 100
+    assert update_score(95, "Win", 2) == 95
+
+
+def test_wrong_guess_costs_5_points():
+    assert update_score(100, "Too High", 1) == 95
+    assert update_score(95, "Too High", 2) == 90
+    assert update_score(100, "Too Low", 1) == 95
+
+
+def test_score_never_below_zero():
+    assert update_score(3, "Too Low", 1) == 0

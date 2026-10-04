@@ -36,7 +36,7 @@ if "attempts" not in st.session_state:
     st.session_state.attempts = 0
 
 if "score" not in st.session_state:
-    st.session_state.score = 0
+    st.session_state.score = 100
 
 if "status" not in st.session_state:
     st.session_state.status = "playing"
@@ -74,7 +74,7 @@ with col3:
 # FIX: New Game now resets attempts, score, history and status, and picks the secret from the selected difficulty's range. Claude proposed it, I reviewed and approved it, then Claude applied it.
 if new_game:
     st.session_state.attempts = 0
-    st.session_state.score = 0
+    st.session_state.score = 100
     st.session_state.history = []
     st.session_state.status = "playing"
     st.session_state.secret = random.randint(low, high)
