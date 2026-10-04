@@ -18,6 +18,7 @@ After looking at the code, the score is calculated so weird!
 6. Difficulty isn't working as intended. The code shows that the secret number should be in between different ranges, but the game doesn't account for this (Ex: Difficulty: Hard (Max should be 50); Secret: 54). The Settings bar on the side shows the expected range, but the info banner under "Make a guess" doesn't show the new range, even though the number of allowed attempts on the banner gets updated upon difficulty change.
 7. The app doesn't account for if the player submits the same guess. (Let the player know they already guessed this number; don't add an attempt)
 8. The Developer Debug Info tab is lagged behind. So if player wins on second try, the stats shown in the dev tab are one guess behind.
+9. Changing the difficulty doesn't automatically start a new game. Ex: once launching the game the difficulty is normal, secret number is 90. I change the difficulty to easy, the secret number is still 90.
 
 **Bug Reproduction Log**
 
