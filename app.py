@@ -46,17 +46,25 @@ if "history" not in st.session_state:
 
 st.subheader("Make a guess")
 
-st.info(
-    f"Guess a number {low} and {high}. "
-    f"Attempts left: {attempt_limit - st.session_state.attempts}"
-)
+# FIX: The banner and debug panel used to be drawn before the guess was processed, so they lagged one guess behind (e.g. a win on attempt 2 still showed attempts 1). Their spots are now reserved here and filled in after the guess is processed. I identified the bug, Claude proposed the fix, I approved it, then Claude applied it.
+info_area = st.container()   # keeps the banner in its spot on the page
+debug_area = st.container()  # keeps the debug panel in its spot on the page
 
-with st.expander("Developer Debug Info"):
-    st.write("Secret:", st.session_state.secret)
-    st.write("Attempts:", st.session_state.attempts)
-    st.write("Score:", st.session_state.score)
-    st.write("Difficulty:", difficulty)
-    st.write("History:", st.session_state.history)
+
+def show_status():
+    with info_area:
+        st.info(
+            f"Guess a number {low} and {high}. "
+            f"Attempts left: {attempt_limit - st.session_state.attempts}"
+        )
+    with debug_area:
+        with st.expander("Developer Debug Info"):
+            st.write("Secret:", st.session_state.secret)
+            st.write("Attempts:", st.session_state.attempts)
+            st.write("Score:", st.session_state.score)
+            st.write("Difficulty:", difficulty)
+            st.write("History:", st.session_state.history)
+
 
 raw_guess = st.text_input(
     "Enter your guess:",
@@ -90,6 +98,7 @@ if st.session_state.status != "playing":
         st.success("You already won. Start a new game to play again.")
     else:
         st.error("Game over. Start a new game to try again.")
+    show_status()
     st.stop()
 
 if submit:
@@ -130,6 +139,8 @@ if submit:
                     f"The secret was {st.session_state.secret}. "
                     f"Score: {st.session_state.score}"
                 )
+
+show_status()
 
 st.divider()
 st.caption("Built by an AI that claims this code is production-ready.")

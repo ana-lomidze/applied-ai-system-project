@@ -80,3 +80,23 @@ def test_wrong_guess_costs_5_points():
 
 def test_score_never_below_zero():
     assert update_score(3, "Too Low", 1) == 0
+
+
+def test_status_shows_current_guess_not_previous():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+
+    # one wrong guess: the banner and debug panel should already reflect it
+    at.text_input[0].set_value("1").run()
+    at.button[SUBMIT].click().run()
+    debug = [m.value for m in at.expander[0].markdown]
+    assert "Attempts left: 7" in at.info[0].value
+    assert "Attempts: `1`" in debug
+    assert "Score: `95`" in debug
+
+    # winning on the second guess: still the current state, not one behind
+    at.text_input[0].set_value("50").run()
+    at.button[SUBMIT].click().run()
+    debug = [m.value for m in at.expander[0].markdown]
+    assert "Attempts left: 6" in at.info[0].value
+    assert "Attempts: `2`" in debug
