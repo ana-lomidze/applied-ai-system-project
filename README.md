@@ -82,6 +82,13 @@ History: [50, 75]
 # pytest tests/
 # ========================= X passed in 0.XXs =========================
 ```
+My pytest output (note: 1 fail is expected):
+
+collected 16 items
+
+tests\test_game_logic.py ...............x                                                                                                       [100%]
+
+=========================================================== 15 passed, 1 xfailed in 3.53s ============================================================
 
 ## 🚀 Stretch Features
 

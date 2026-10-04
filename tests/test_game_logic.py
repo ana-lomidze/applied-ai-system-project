@@ -1,4 +1,5 @@
-from logic_utils import check_guess, update_score
+import pytest
+from logic_utils import check_guess, parse_guess, update_score
 from streamlit.testing.v1 import AppTest
 
 def test_winning_guess():
@@ -100,3 +101,39 @@ def test_status_shows_current_guess_not_previous():
     debug = [m.value for m in at.expander[0].markdown]
     assert "Attempts left: 6" in at.info[0].value
     assert "Attempts: `2`" in debug
+
+
+# Tests for Challenge 1: Advanced Edge-Case Testing
+def test_parse_guess_empty_and_none():
+    assert parse_guess("") == (False, None, "Enter a guess.")
+    assert parse_guess(None) == (False, None, "Enter a guess.")
+
+
+def test_parse_guess_rejects_non_numbers():
+    assert parse_guess("abc") == (False, None, "That is not a number.")
+    assert parse_guess("12abc") == (False, None, "That is not a number.")
+    assert parse_guess(" ") == (False, None, "That is not a number.")
+
+
+def test_parse_guess_valid_ints_and_whitespace():
+    assert parse_guess("42") == (True, 42, None)
+    assert parse_guess(" 7 ") == (True, 7, None)
+
+
+def test_parse_guess_decimals_truncate():
+    assert parse_guess("5.9") == (True, 5, None)
+    assert parse_guess("-0.5") == (True, 0, None)
+
+
+def test_check_guess_boundaries_and_messages():
+    assert check_guess(51, 50) == ("Too High", "📉 Go LOWER!")
+    assert check_guess(49, 50) == ("Too Low", "📈 Go HIGHER!")
+
+
+@pytest.mark.xfail(reason="Out-of-range guesses are currently accepted; behavior not decided yet")
+def test_out_of_range_guess_is_rejected():
+    at = AppTest.from_file("app.py").run()  # Normal difficulty: 1 to 100
+    at.session_state["secret"] = 50
+    at.text_input[0].set_value("500").run()
+    at.button[SUBMIT].click().run()
+    assert at.error  # expect an error message instead of a "Too High" hint -> Fails
