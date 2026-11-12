@@ -1,0 +1,70 @@
+flowchart TD
+    %% ---------- User / UI layer ----------
+    Player(["Player"])
+    subgraph UI["Streamlit UI (app.py)"]
+        Sidebar["Sidebar: difficulty, Show hint, AI Game Master toggle"]
+        Submit["Submit branch: guess entered"]
+        State[("st.session_state: secret, history, attempts, cached hint")]
+        Display["Display hint and game status"]
+    end
+
+    %% ---------- Deterministic core ----------
+    subgraph CORE["Deterministic core (logic_utils.py)"]
+        Check["check_guess(guess, secret): ground truth Too High / Too Low / Win"]
+        Static["Static hint (fallback)"]
+        Validate["validate_hint(): 1) no secret number in text, 2) direction agrees with check_guess"]
+        GetAI["get_ai_hint(guess, secret, history, difficulty)"]
+    end
+
+    %% ---------- AI layer ----------
+    subgraph AI["AI layer (ai_master.py)"]
+        Prompt["Game Master system prompt: playful host, never reveals number, hint style varies by difficulty"]
+        Client["Anthropic client wrapper (key from ANTHROPIC_API_KEY)"]
+    end
+    Claude[["Claude API"]]
+
+    %% ---------- Testing / reliability ----------
+    subgraph TEST["Reliability and testing"]
+        Pytest["pytest: test_game_logic.py, test_ai_hints.py (mocked client)"]
+        Eval["tests/eval_hints.py: simulated binary-search games; direction accuracy, leak rate, retry rate, avg guesses to win"]
+    end
+
+    %% ---------- Secret selection (first load / New Game) ----------
+    Pick["pick_secret(low, high, difficulty): Claude returns a number"]
+    CheckSecret{"Valid integer within range?"}
+    Fallback["Fallback: random.randint(low, high)"]
+    Sidebar -->|"first load / New Game, AI toggle ON and key present"| Pick
+    Sidebar -.->|"first load / New Game, AI toggle OFF or key missing"| Fallback
+    Pick <-->|"request / number"| Claude
+    Pick --> CheckSecret
+    CheckSecret -->|"yes"| State
+    CheckSecret -->|"no, after one retry"| Fallback
+    Fallback --> State
+
+    %% ---------- Main flow ----------
+    Player -->|"enters guess"| Submit
+    Sidebar -->|"settings"| Submit
+    Submit -->|"read secret and history"| State
+    Submit --> Check
+    Check -->|"outcome"| Static
+    Submit -->|"AI toggle ON and key present"| GetAI
+    Submit -.->|"AI toggle OFF or key missing"| Static
+
+    GetAI -->|"secret + history + outcome"| Prompt
+    Prompt --> Client
+    Client <-->|"request / hint text"| Claude
+    Client -->|"candidate hint"| Validate
+    Check -->|"expected direction"| Validate
+
+    Validate -->|"pass"| Display
+    Validate -->|"fail, first time: retry once"| GetAI
+    Validate -->|"fail after retry or API error"| Static
+    Static --> Display
+    Display -->|"cache hint (avoid duplicate calls on rerun)"| State
+    Display --> Player
+
+    %% ---------- Testing links ----------
+    Pytest -.->|"covers"| Check
+    Pytest -.->|"covers, mock Claude"| Validate
+    Eval -.->|"calls"| GetAI
+    Eval -.->|"scores with"| Check
