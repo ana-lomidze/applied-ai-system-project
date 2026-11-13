@@ -19,9 +19,9 @@ flowchart TD
     %% ---------- AI layer ----------
     subgraph AI["AI layer (ai_master.py)"]
         Prompt["Game Master system prompt: playful host, never reveals number, hint style varies by difficulty"]
-        Client["Anthropic client wrapper (key from ANTHROPIC_API_KEY)"]
+        Client["Gemini client wrapper (key from GEMINI_API_KEY in .env)"]
     end
-    Claude[["Claude API"]]
+    Gemini[["Gemini API"]]
 
     %% ---------- Testing / reliability ----------
     subgraph TEST["Reliability and testing"]
@@ -30,12 +30,12 @@ flowchart TD
     end
 
     %% ---------- Secret selection (first load / New Game) ----------
-    Pick["pick_secret(low, high, difficulty): Claude returns a number"]
+    Pick["pick_secret(low, high, difficulty): Gemini returns a number"]
     CheckSecret{"Valid integer within range?"}
     Fallback["Fallback: random.randint(low, high)"]
     Sidebar -->|"first load / New Game, AI toggle ON and key present"| Pick
     Sidebar -.->|"first load / New Game, AI toggle OFF or key missing"| Fallback
-    Pick <-->|"request / number"| Claude
+    Pick <-->|"request / number"| Gemini
     Pick --> CheckSecret
     CheckSecret -->|"yes"| State
     CheckSecret -->|"no, after one retry"| Fallback
@@ -52,7 +52,7 @@ flowchart TD
 
     GetAI -->|"secret + history + outcome"| Prompt
     Prompt --> Client
-    Client <-->|"request / hint text"| Claude
+    Client <-->|"request / hint text"| Gemini
     Client -->|"candidate hint"| Validate
     Check -->|"expected direction"| Validate
 
@@ -65,6 +65,6 @@ flowchart TD
 
     %% ---------- Testing links ----------
     Pytest -.->|"covers"| Check
-    Pytest -.->|"covers, mock Claude"| Validate
+    Pytest -.->|"covers, mock Gemini"| Validate
     Eval -.->|"calls"| GetAI
     Eval -.->|"scores with"| Check
