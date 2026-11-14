@@ -2,7 +2,7 @@ flowchart TD
     %% ---------- User / UI layer ----------
     Player(["Player"])
     subgraph UI["Streamlit UI (app.py)"]
-        Sidebar["Sidebar: difficulty, Show hint, AI Game Master toggle"]
+        Sidebar["Sidebar: difficulty, AI Game Master toggle"]
         Submit["Submit branch: guess entered"]
         State[("st.session_state: secret, history, attempts, cached hint")]
         Display["Display hint and game status"]
@@ -30,9 +30,9 @@ flowchart TD
     end
 
     %% ---------- Secret selection (first load / New Game) ----------
-    Pick["pick_secret(low, high, difficulty): Gemini returns a number"]
-    CheckSecret{"Valid integer within range?"}
-    Fallback["Fallback: random.randint(low, high)"]
+    Pick["pick_secret(low, high): range comes from difficulty. Code picks a random band, Gemini picks a number inside it"]
+    CheckSecret{"Valid integer inside the band?"}
+    Fallback["Fallback: random.randint over the full range"]
     Sidebar -->|"first load / New Game, AI toggle ON and key present"| Pick
     Sidebar -.->|"first load / New Game, AI toggle OFF or key missing"| Fallback
     Pick <-->|"request / number"| Gemini

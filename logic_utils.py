@@ -1,3 +1,10 @@
+import json
+import random
+import re
+from dataclasses import dataclass, field
+
+import ai_master
+
 # FIX: Moved from app.py into logic_utils.py (refactor step 1). Claude showed the change, I approved it, then Claude applied it with the body unchanged.
 def get_range_for_difficulty(difficulty: str):
     """Return (low, high) inclusive range for a given difficulty."""
@@ -66,3 +73,147 @@ def update_score(current_score: int, outcome: str, attempt_number: int):
         return max(current_score - 5, 0)
 
     return current_score
+
+
+def _parse_secret(text, low, high):
+    """Return the secret from Gemini's JSON reply, or None if it is not a valid int in range."""
+    try:
+        value = json.loads(text)["secret"]
+    except Exception:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if not (low <= value <= high):
+        return None
+    return value
+
+
+NUM_BANDS = 5  # the range is split into this many equal bands
+
+
+def random_band(low: int, high: int):
+    """Return a random (band_low, band_high) slice of [low, high]."""
+    width = -(-(high - low + 1) // NUM_BANDS)  # ceiling division
+    starts = range(low, high + 1, width)  # only bands that start inside the range
+    band_low = random.choice(starts)
+    return band_low, min(high, band_low + width - 1)
+
+
+def pick_secret(low: int, high: int, use_ai: bool = True):
+    """
+    Pick the secret number. Returns (secret, source), source is "ai" or "random".
+
+    Gemini always picks the same few numbers when asked for a random one (it
+    answered 37 in 11 of 12 tries), so the code first chooses a random band of
+    the range and Gemini picks a number inside that band. The code validates the
+    answer (JSON, an int, inside the band). One retry, then falls back to
+    random.randint over the full range, so a bad or missing AI answer can never
+    break the game.
+    """
+    if use_ai and ai_master.is_available():
+        band_low, band_high = random_band(low, high)
+        prompt = ai_master.SECRET_PICKER_PROMPT.format(low=band_low, high=band_high)
+        for _ in range(2):  # first try + one retry
+            reply = ai_master.ask(prompt, system="You output JSON only.", json_output=True)
+            secret = _parse_secret(reply, band_low, band_high) if reply else None
+            if secret is not None:
+                return secret, "ai"
+    return random.randint(low, high), "random"
+
+
+# ---------------------------------------------------------------------------
+# AI hints: Gemini writes the WORDING, check_guess() decides CORRECTNESS.
+# ---------------------------------------------------------------------------
+_ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+         "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+         "seventeen", "eighteen", "nineteen"]
+_TENS = {20: "twenty", 30: "thirty", 40: "forty", 50: "fifty",
+         60: "sixty", 70: "seventy", 80: "eighty", 90: "ninety"}
+
+
+def _number_words(n: int):
+    """English spellings of n (0-100), e.g. 37 -> ["thirty-seven", "thirty seven"]."""
+    if n < 20:
+        return [_ONES[n]]
+    if n == 100:
+        return ["one hundred", "a hundred"]
+    tens, ones = (n // 10) * 10, n % 10
+    if ones == 0:
+        return [_TENS[tens]]
+    return [f"{_TENS[tens]}-{_ONES[ones]}", f"{_TENS[tens]} {_ONES[ones]}"]
+
+
+def validate_hint(hint, secret: int, outcome: str):
+    """
+    Guardrail for an AI hint. Returns (ok, reason); reason is "" when ok.
+
+    1. It must not contain the secret (as digits or spelled out).
+    2. It must contain exactly one of the words "higher" / "lower", and it must be
+       the one check_guess() says is right ("Too High" -> "lower", "Too Low" -> "higher").
+    """
+    if not hint or not hint.strip():
+        return False, "empty hint"
+
+    text = hint.lower()
+
+    if re.search(rf"(?<!\d){secret}(?!\d)", text):
+        return False, "leaked the secret number"
+    if 0 <= secret <= 100:
+        for word in _number_words(secret):
+            if re.search(rf"\b{re.escape(word)}\b", text):
+                return False, "leaked the secret number (spelled out)"
+
+    has_higher = re.search(r"\bhigher\b", text) is not None
+    has_lower = re.search(r"\blower\b", text) is not None
+    if has_higher == has_lower:
+        return False, 'must contain exactly one of "higher" or "lower"'
+
+    expected = "lower" if outcome == "Too High" else "higher"
+    if (expected == "lower") != has_lower:
+        return False, f'wrong direction: should say "{expected}"'
+    return True, ""
+
+
+@dataclass
+class HintResult:
+    text: str                      # the hint to show the player
+    source: str                    # "ai" or "static"
+    attempts: int = 0              # Gemini calls made (0, 1 or 2)
+    failures: list = field(default_factory=list)  # why each rejected attempt failed
+
+
+def get_ai_hint(guess: int, secret: int, history, difficulty: str) -> HintResult:
+    """
+    Return a hint for `guess`. history = EARLIER guesses (not including this one).
+
+    check_guess() decides the outcome. Gemini only words the hint, and the result
+    is validated. One retry (told what was wrong), then falls back to the static
+    hint, so a bad, leaky or failed AI answer never reaches the player.
+    """
+    outcome, static_message = check_guess(guess, secret)
+    if outcome == "Win" or not ai_master.is_available():
+        return HintResult(static_message, "static")
+
+    earlier = [g for g in history if isinstance(g, int)]
+    prompt = (
+        f"Secret number: {secret}\n"
+        f"Difficulty: {difficulty}\n"
+        f"Player's latest guess: {guess} ({outcome})\n"
+        f"Earlier guesses: {earlier}\n"
+        "Write the hint now."
+    )
+
+    result = HintResult(static_message, "static")
+    for _ in range(2):  # first try + one retry
+        result.attempts += 1
+        reply = ai_master.ask(prompt)
+        if reply is None:
+            ok, reason = False, "no reply from Gemini"
+        else:
+            ok, reason = validate_hint(reply, secret, outcome)
+        if ok:
+            result.text, result.source = reply.strip(), "ai"
+            return result
+        result.failures.append(reason)
+        prompt += f"\n(Your previous reply was rejected: {reason}. Try again.)"
+    return result

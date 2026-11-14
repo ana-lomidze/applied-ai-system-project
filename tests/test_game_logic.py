@@ -137,3 +137,44 @@ def test_out_of_range_guess_is_rejected():
     at.text_input[0].set_value("500").run()
     at.button[SUBMIT].click().run()
     assert at.error  # expect an error message instead of a "Too High" hint -> Fails
+
+
+# Tests for bug #8: changing the difficulty starts a new game.
+def test_changing_difficulty_starts_new_game():
+    at = AppTest.from_file("app.py").run()  # Normal: 1 to 100
+    at.session_state["secret"] = 90  # outside the Easy range (1 to 20)
+    at.text_input[0].set_value("1").run()
+    at.button[SUBMIT].click().run()
+    assert at.session_state["attempts"] == 1
+
+    at.sidebar.selectbox[0].select("Easy").run()
+
+    assert not at.exception
+    assert 1 <= at.session_state["secret"] <= 20
+    assert at.session_state["attempts"] == 0
+    assert at.session_state["score"] == 100
+    assert at.session_state["history"] == []
+    assert at.session_state["status"] == "playing"
+    assert any("Difficulty changed to Easy" in i.value for i in at.info)
+
+
+def test_same_difficulty_keeps_the_game_going():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    at.text_input[0].set_value("1").run()
+    at.button[SUBMIT].click().run()
+    at.text_input[0].set_value("2").run()
+    at.button[SUBMIT].click().run()  # reruns without changing difficulty
+
+    assert at.session_state["secret"] == 50
+    assert at.session_state["attempts"] == 2
+    assert not any("Difficulty changed" in i.value for i in at.info)
+
+
+def test_changing_difficulty_after_game_over_allows_play():
+    at = _lose_a_game()
+    at.sidebar.selectbox[0].select("Hard").run()
+
+    assert at.session_state["status"] == "playing"
+    assert 1 <= at.session_state["secret"] <= 50
+    assert not at.error  # no "Game over" message
