@@ -81,7 +81,7 @@ def reset_game():
     st.session_state.last_hint = None
 
 
-# FIX (bug #8): changing the difficulty now starts a new game. Before, the old secret (e.g. 90)
+# FIX: changing the difficulty now starts a new game. Before, the old secret (e.g. 90)
 # stayed in play after switching to Easy (1-20), so it could be outside the new range.
 if "difficulty" not in st.session_state:
     st.session_state.difficulty = difficulty
@@ -156,30 +156,52 @@ if st.session_state.status != "playing":
     show_status()
     st.stop()
 
+def penalize_invalid_guess():
+    """An unusable guess (not a whole number, or out of range) costs points like a wrong guess."""
+    st.session_state.score = update_score(
+        current_score=st.session_state.score,
+        outcome="Invalid",
+        attempt_number=st.session_state.attempts,
+    )
+
+
+def end_game_if_out_of_attempts():
+    """Lose the game when the attempt limit is used up (valid or invalid guess alike).
+
+    Running out of attempts always means a score of 0.
+    """
+    if st.session_state.attempts >= attempt_limit:
+        st.session_state.status = "lost"
+        st.session_state.score = 0
+        st.error(
+            f"Out of attempts! "
+            f"The secret was {st.session_state.secret}. "
+            f"Score: {st.session_state.score}"
+        )
+
+
 if submit:
     st.session_state.attempts += 1
 
     ok, guess_int, err = parse_guess(raw_guess)
 
     if not ok:
+        # Invalid text (or a decimal) is an error, but still costs one attempt.
         st.session_state.history.append(raw_guess)
-        st.error(err)
+        penalize_invalid_guess()
+        st.error(f"{err} This still counts as one of your guesses.")
+        end_game_if_out_of_attempts()
     elif not (low <= guess_int <= high):
-        # FIX (bug #5): out-of-range guesses used to be treated like normal guesses. Now the
+        # FIX: out-of-range guesses used to be treated like normal guesses. Now the
         # player is told it is out of range. It still counts as an attempt, but gets no hint
-        # and no score penalty.
+        # and costs points like a wrong guess.
         st.session_state.history.append(guess_int)
+        penalize_invalid_guess()
         st.error(
             f"{guess_int} is outside the range {low} to {high}. "
-            "That still counts as one of your guesses."
+            "This still counts as one of your guesses."
         )
-        if st.session_state.attempts >= attempt_limit:
-            st.session_state.status = "lost"
-            st.error(
-                f"Out of attempts! "
-                f"The secret was {st.session_state.secret}. "
-                f"Score: {st.session_state.score}"
-            )
+        end_game_if_out_of_attempts()
     else:
         st.session_state.history.append(guess_int)
 
@@ -217,13 +239,7 @@ if submit:
                 f"Final score: {st.session_state.score}"
             )
         else:
-            if st.session_state.attempts >= attempt_limit:
-                st.session_state.status = "lost"
-                st.error(
-                    f"Out of attempts! "
-                    f"The secret was {st.session_state.secret}. "
-                    f"Score: {st.session_state.score}"
-                )
+            end_game_if_out_of_attempts()
 
 show_status()
 

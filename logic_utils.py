@@ -1,4 +1,5 @@
 import json
+import math
 import random
 import re
 from dataclasses import dataclass, field
@@ -31,12 +32,18 @@ def parse_guess(raw: str):
         return False, None, "Enter a guess."
 
     try:
-        if "." in raw:
-            value = int(float(raw))
-        else:
-            value = int(raw)
-    except Exception:
-        return False, None, "That is not a number."
+        value = int(raw)
+    except ValueError:
+        # Not a plain integer. A decimal like "5.9" is a number but not a whole number.
+        try:
+            number = float(raw)
+        except ValueError:
+            return False, None, "That is not a number."
+        if not math.isfinite(number):
+            return False, None, "That is not a number."
+        if not number.is_integer():
+            return False, None, "Guesses must be whole numbers."
+        value = int(number)  # e.g. "5.0" is the whole number 5
 
     return True, value, None
 
@@ -68,8 +75,13 @@ def check_guess(guess, secret):
 
 # FIX: Moved from app.py into logic_utils.py (refactor step 4), then the scoring was simplified: a round starts at 100, every wrong guess costs 5 (never below 0), and a win keeps whatever is left. This removed the double penalty from the old win bonus. I suggested the "start at 100 and go down" idea, Claude proposed the code, I approved it, then Claude applied it.
 def update_score(current_score: int, outcome: str, attempt_number: int):
-    """Update score based on outcome and attempt number."""
-    if outcome in ("Too High", "Too Low"):
+    """
+    Update score based on outcome and attempt number.
+
+    Every wrong guess costs 5 points. "Invalid" covers unusable guesses (not a whole
+    number, or outside the range), which cost the same as a wrong guess.
+    """
+    if outcome in ("Too High", "Too Low", "Invalid"):
         return max(current_score - 5, 0)
 
     return current_score

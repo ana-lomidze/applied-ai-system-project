@@ -120,9 +120,20 @@ def test_parse_guess_valid_ints_and_whitespace():
     assert parse_guess(" 7 ") == (True, 7, None)
 
 
-def test_parse_guess_decimals_truncate():
-    assert parse_guess("5.9") == (True, 5, None)
-    assert parse_guess("-0.5") == (True, 0, None)
+def test_parse_guess_rejects_decimals():
+    assert parse_guess("5.9") == (False, None, "Guesses must be whole numbers.")
+    assert parse_guess("-0.5") == (False, None, "Guesses must be whole numbers.")
+    assert parse_guess("0.1") == (False, None, "Guesses must be whole numbers.")
+
+
+def test_parse_guess_accepts_whole_number_decimals():
+    assert parse_guess("5.0") == (True, 5, None)
+    assert parse_guess("-3.0") == (True, -3, None)
+
+
+def test_parse_guess_rejects_non_finite_and_odd_input():
+    for raw in ["inf", "nan", "-inf", "1e999", "5.9.1", "."]:
+        assert parse_guess(raw) == (False, None, "That is not a number."), raw
 
 
 def test_check_guess_boundaries_and_messages():
@@ -148,7 +159,7 @@ def test_out_of_range_guess_counts_as_an_attempt():
 
     assert at.session_state["attempts"] == 1
     assert at.session_state["history"] == [500]
-    assert at.session_state["score"] == 100  # no score penalty
+    assert at.session_state["score"] == 95  # costs 5 points, like a wrong guess
     assert at.session_state["status"] == "playing"
     assert "Attempts left: 7" in at.info[0].value
 
@@ -174,7 +185,7 @@ def test_out_of_range_guess_can_use_the_last_attempt():
     assert any("Out of attempts" in e.value for e in at.error)
 
 
-# Tests for bug #8: changing the difficulty starts a new game.
+# Tests for changing the difficulty: it starts a new game.
 def test_changing_difficulty_starts_new_game():
     at = AppTest.from_file("app.py").run()  # Normal: 1 to 100
     at.session_state["secret"] = 90  # outside the Easy range (1 to 20)
@@ -213,3 +224,100 @@ def test_changing_difficulty_after_game_over_allows_play():
     assert at.session_state["status"] == "playing"
     assert 1 <= at.session_state["secret"] <= 50
     assert not at.error  # no "Game over" message
+
+
+# Tests for non-integer guesses: an error, but it still counts as an attempt.
+def test_non_integer_guesses_are_errors_that_cost_an_attempt():
+    for raw, message in [("abc", "That is not a number."), ("5.9", "Guesses must be whole numbers.")]:
+        at = AppTest.from_file("app.py").run()
+        at.session_state["secret"] = 50
+        at.text_input[0].set_value(raw).run()
+        at.button[SUBMIT].click().run()
+
+        assert not at.exception, raw
+        assert message in at.error[0].value, raw
+        assert "still counts" in at.error[0].value, raw
+        assert not at.warning, raw  # no hint
+        assert at.session_state["attempts"] == 1, raw
+        assert at.session_state["score"] == 95, raw  # costs 5 points, like a wrong guess
+        assert "Attempts left: 7" in at.info[0].value, raw
+
+
+def test_empty_guess_is_an_error_that_costs_an_attempt():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    at.button[SUBMIT].click().run()  # nothing typed
+
+    assert "Enter a guess." in at.error[0].value
+    assert at.session_state["attempts"] == 1
+
+
+def test_invalid_guess_can_use_the_last_attempt():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    for _ in range(8):  # Normal allows 8 attempts, all invalid
+        at.text_input[0].set_value("abc").run()
+        at.button[SUBMIT].click().run()
+
+    assert at.session_state["status"] == "lost"
+    assert any("Out of attempts" in e.value for e in at.error)
+
+
+# Tests for scoring: invalid guesses cost points, and running out of attempts means 0.
+def test_invalid_guess_costs_5_points():
+    assert update_score(100, "Invalid", 1) == 95
+    assert update_score(3, "Invalid", 1) == 0  # never below 0
+
+
+def test_invalid_guesses_cost_points_in_the_app():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    for raw, expected in [("abc", 95), ("500", 90), ("5.5", 85), ("1", 80)]:  # last one is a wrong guess
+        at.text_input[0].set_value(raw).run()
+        at.button[SUBMIT].click().run()
+        assert at.session_state["score"] == expected, raw
+
+
+def test_running_out_of_attempts_sets_score_to_zero():
+    at = _lose_a_game()  # 8 wrong guesses
+    assert at.session_state["status"] == "lost"
+    assert at.session_state["score"] == 0
+    assert any("Score: 0" in e.value for e in at.error)
+
+
+def test_losing_on_an_invalid_last_guess_sets_score_to_zero():
+    for last_guess in ["0", "abc", "2.5"]:  # out of range, not a number, decimal
+        at = AppTest.from_file("app.py").run()
+        at.session_state["secret"] = 50
+        for _ in range(7):
+            at.text_input[0].set_value("1").run()
+            at.button[SUBMIT].click().run()
+        assert at.session_state["score"] == 65  # 7 wrong guesses
+        at.text_input[0].set_value(last_guess).run()
+        at.button[SUBMIT].click().run()
+        assert at.session_state["status"] == "lost", last_guess
+        assert at.session_state["score"] == 0, last_guess
+        assert any("Score: 0" in e.value for e in at.error), last_guess
+
+
+def test_winning_keeps_the_remaining_score():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    at.text_input[0].set_value("abc").run()
+    at.button[SUBMIT].click().run()  # 95
+    at.text_input[0].set_value("50").run()
+    at.button[SUBMIT].click().run()  # win on attempt 2
+    assert at.session_state["status"] == "won"
+    assert at.session_state["score"] == 95
+
+
+def test_winning_on_the_last_attempt_keeps_the_score():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    for _ in range(7):
+        at.text_input[0].set_value("1").run()
+        at.button[SUBMIT].click().run()
+    at.text_input[0].set_value("50").run()
+    at.button[SUBMIT].click().run()  # win on attempt 8 of 8
+    assert at.session_state["status"] == "won"
+    assert at.session_state["score"] == 65
