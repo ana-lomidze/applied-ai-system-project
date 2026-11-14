@@ -130,13 +130,48 @@ def test_check_guess_boundaries_and_messages():
     assert check_guess(49, 50) == ("Too Low", "📈 Go HIGHER!")
 
 
-@pytest.mark.xfail(reason="Out-of-range guesses are currently accepted; behavior not decided yet")
 def test_out_of_range_guess_is_rejected():
     at = AppTest.from_file("app.py").run()  # Normal difficulty: 1 to 100
     at.session_state["secret"] = 50
     at.text_input[0].set_value("500").run()
     at.button[SUBMIT].click().run()
-    assert at.error  # expect an error message instead of a "Too High" hint -> Fails
+    assert at.error  # an error message instead of a "Too High" hint
+    assert "outside the range 1 to 100" in at.error[0].value
+    assert not at.warning  # no hint is given
+
+
+def test_out_of_range_guess_counts_as_an_attempt():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    at.text_input[0].set_value("500").run()
+    at.button[SUBMIT].click().run()
+
+    assert at.session_state["attempts"] == 1
+    assert at.session_state["history"] == [500]
+    assert at.session_state["score"] == 100  # no score penalty
+    assert at.session_state["status"] == "playing"
+    assert "Attempts left: 7" in at.info[0].value
+
+
+def test_out_of_range_boundaries():
+    # 0 and 101 are out of range (Normal is 1 to 100); 1 and 100 are valid guesses
+    for guess, in_range in [("0", False), ("101", False), ("-5", False), ("1", True), ("100", True)]:
+        at = AppTest.from_file("app.py").run()
+        at.session_state["secret"] = 50
+        at.text_input[0].set_value(guess).run()
+        at.button[SUBMIT].click().run()
+        assert bool(at.warning) == in_range, guess  # valid guesses get a hint
+        assert any("outside the range" in e.value for e in at.error) == (not in_range), guess
+
+
+def test_out_of_range_guess_can_use_the_last_attempt():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    for _ in range(8):  # Normal allows 8 attempts, all out of range
+        at.text_input[0].set_value("500").run()
+        at.button[SUBMIT].click().run()
+    assert at.session_state["status"] == "lost"
+    assert any("Out of attempts" in e.value for e in at.error)
 
 
 # Tests for bug #8: changing the difficulty starts a new game.

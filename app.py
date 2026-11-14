@@ -164,6 +164,22 @@ if submit:
     if not ok:
         st.session_state.history.append(raw_guess)
         st.error(err)
+    elif not (low <= guess_int <= high):
+        # FIX (bug #5): out-of-range guesses used to be treated like normal guesses. Now the
+        # player is told it is out of range. It still counts as an attempt, but gets no hint
+        # and no score penalty.
+        st.session_state.history.append(guess_int)
+        st.error(
+            f"{guess_int} is outside the range {low} to {high}. "
+            "That still counts as one of your guesses."
+        )
+        if st.session_state.attempts >= attempt_limit:
+            st.session_state.status = "lost"
+            st.error(
+                f"Out of attempts! "
+                f"The secret was {st.session_state.secret}. "
+                f"Score: {st.session_state.score}"
+            )
     else:
         st.session_state.history.append(guess_int)
 
