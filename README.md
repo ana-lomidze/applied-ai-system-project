@@ -36,6 +36,8 @@ Gemini only ever writes the wording. The code decides what is true.
 
 [Reliability Diagram](https://github.com/ana-lomidze/applied-ai-system-project/blob/main/diagrams/reliability_flow.mmd)
 
+
+**Whole System Diagram**
 ```mermaid
 flowchart TD
     %% ---------- User / UI layer ----------
@@ -359,3 +361,7 @@ python tests/eval_hints.py --games 10 --delay 5
 - Secret picking was valid 10 out of 10 times, with 8 distinct secrets in 10 games.
 - 4 of 57 calls (7%) got no usable reply, because of 503 "unavailable" errors and one other error. 2 of 36 hints needed a retry, and none fell back to the plain hint.
 - The sample is small. "No failures in 36 replies" is not "never fails".
+
+
+## License
+This is a course project that uses *Dungeon Crawler Carl* as inspiration; not affiliated with the author or publisher. Please do not submit this as your own work.
