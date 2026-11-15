@@ -321,7 +321,9 @@ def render(m, games, rows, rejected, args, started):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", type=int, default=20)
-    parser.add_argument("--delay", type=float, default=0.5, help="seconds to wait after each API call")
+    parser.add_argument("--delay", type=float, default=4.0,
+                        help="seconds to wait after each API call (the free tier rate-limits "
+                             "fast callers with 429 errors, so 4-5s is safe)")
     parser.add_argument("--seed", type=int, default=None, help="seed for --mock")
     parser.add_argument("--mock", action="store_true", help="offline run with a fake, flawed Gemini")
     parser.add_argument("--verbose", action="store_true", help="print every hint")

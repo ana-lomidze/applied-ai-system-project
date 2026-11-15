@@ -14,7 +14,14 @@ from logic_utils import (
 st.set_page_config(page_title="Number Guessing Game", page_icon="🎮")
 
 st.title("🎮 Number Guessing Game")
-st.caption("A number guessing game with an AI game master (or not; the AI game master can be toggled off).")
+st.caption(
+    "Welcome to the World Dungeon, Crawler. This game is a number guessing game led " \
+    "by a sarcastic AI game master (yours truly), inspired by *Dungeon Crawler Carl* by Matt Dinniman. " \
+    "In this game you are tasked with guessing the number that I have in mind. Don't be nervous! " \
+    "Only the whole universe is watching. I would wish you good luck, but I don't really " \
+    "care how you do. "
+    "\n\nToggle the AI off in the sidebar for a plain game."
+)
 
 st.sidebar.header("Settings")
 
@@ -106,7 +113,7 @@ HINT_SOURCE_LABELS = {"ai": "AI", "static": "static"}
 def show_status():
     with info_area:
         st.info(
-            f"Guess a number {low} and {high}. "
+            f"Guess a number between {low} and {high}. "
             f"Attempts left: {attempt_limit - st.session_state.attempts}"
         )
     with debug_area:
@@ -117,7 +124,7 @@ def show_status():
             last_hint = st.session_state.get("last_hint")
             if last_hint is not None:
                 st.write("Last hint source:", HINT_SOURCE_LABELS.get(last_hint.source, last_hint.source))
-                st.write("Hint attempts:", last_hint.attempts)
+                st.write("Hint attempts:", last_hint.attempts) #shows how many attempts the hint took to have the correct direction and not leak the secret number (guardrail)
                 st.write("Hint rejections:", last_hint.failures)
             st.write("Attempts:", st.session_state.attempts)
             st.write("Score:", st.session_state.score)
@@ -262,4 +269,4 @@ if submit:
 show_status()
 
 st.divider()
-#st.caption("Built by an AI that claims this code is production-ready.")
+st.caption("Fan-made project for a course. Not affiliated with the author or publisher.")

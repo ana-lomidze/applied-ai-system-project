@@ -124,9 +124,35 @@ def _get_client():
     return _client
 
 
+# Why the most recent ask() returned None: "no_key", "rate_limit", "timeout", "empty" or
+# "error". None when it succeeded. Callers use it to skip a pointless instant retry.
+last_error = None
+
+
+def _classify_error(exc) -> str:
+    """Sort an API exception into rate_limit (429), timeout (504) or error."""
+    text = str(exc)
+    if getattr(exc, "code", None) == 429 or "RESOURCE_EXHAUSTED" in text:
+        return "rate_limit"
+    if (
+        getattr(exc, "code", None) == 504
+        or "DEADLINE_EXCEEDED" in text
+        or isinstance(exc, TimeoutError)
+        or "timed out" in text.lower()
+    ):
+        return "timeout"
+    return "error"
+
+
 def ask(prompt: str, system: str = GAME_MASTER_PROMPT, json_output: bool = False):
-    """Send one request to Gemini. Returns the reply text, or None on any failure."""
+    """Send one request to Gemini. Returns the reply text, or None on any failure.
+
+    On failure, last_error says why (see above).
+    """
+    global last_error
+    last_error = None
     if not is_available():
+        last_error = "no_key"
         return None
     try:
         config = types.GenerateContentConfig(
@@ -137,7 +163,10 @@ def ask(prompt: str, system: str = GAME_MASTER_PROMPT, json_output: bool = False
             model=MODEL_NAME, contents=prompt, config=config
         )
         text = (response.text or "").strip()
+        if not text:
+            last_error = "empty"
         return text or None
     except Exception as exc:  # network, quota, permission, timeout, ...
+        last_error = _classify_error(exc)
         logger.warning("Gemini request failed: %s", exc)
         return None

@@ -130,6 +130,8 @@ def pick_secret(low: int, high: int, use_ai: bool = True):
             secret = _parse_secret(reply, band_low, band_high) if reply else None
             if secret is not None:
                 return secret, "ai"
+            if reply is None and ai_master.last_error == "rate_limit":
+                break  # rate limited: an instant retry would just fail again
     return random.randint(low, high), "random"
 
 
@@ -199,6 +201,9 @@ def _ask_validated(prompt: str, validate, static_text: str, system: str) -> Hint
     Ask Gemini, check the reply with validate(reply) -> (ok, reason), and retry once
     (telling Gemini what was wrong). After two failures, return static_text instead,
     so a bad or failed AI answer never reaches the player.
+
+    If Gemini says we are rate limited (429), there is no retry: an instant second call
+    would just fail again, so we fall back to static_text right away.
     """
     result = HintResult(static_text, "static")
     for _ in range(2):  # first try + one retry
@@ -206,6 +211,9 @@ def _ask_validated(prompt: str, validate, static_text: str, system: str) -> Hint
         reply = ai_master.ask(prompt, system=system)
         if reply is None:
             ok, reason = False, "no reply from Gemini"
+            if ai_master.last_error == "rate_limit":
+                result.failures.append("rate limited by Gemini")
+                return result
         else:
             ok, reason = validate(reply)
         if ok:

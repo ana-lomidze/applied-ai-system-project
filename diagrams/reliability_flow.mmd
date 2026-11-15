@@ -1,0 +1,38 @@
+flowchart TD
+    %% Reliability flow: how every AI output (hint, win message, secret pick) is checked
+    %% and replaced by a safe fallback, so the AI can never break the game.
+
+    Need(["A feature needs text from Gemini"])
+    Avail{"AI toggle ON and key present?"}
+    Send["Send the prompt to Gemini (15 second timeout)"]
+    Got{"What came back?"}
+    Guard{"Guardrail check on the reply"}
+    TriesLeft{"Second try still available?"}
+    Use(["Show the AI text"])
+    Fallback(["Fallback: static hint, plain win message or random.randint. Always correct, never blocks the game"])
+
+    Truth["Ground truth is code, not the AI: check_guess decides Too High / Too Low / Win, update_score decides points. Gemini only writes the wording"]
+    Guards["Guardrails. Hint: no secret number as digits or words, exactly one of higher / lower and it matches check_guess. Win message: contains the secret number and the final score. Secret pick: JSON integer inside the chosen band"]
+
+    subgraph Verify["How the design is verified"]
+        Pytest["pytest with a mocked Gemini: every guardrail rule, retry, fallback and rate-limit path. Deliberately broken code was caught"]
+        Eval["tests/eval_hints.py: records every raw reply, then reports accuracy and leak rate before the guardrail and what was shown after it, plus API failures"]
+    end
+
+    Need --> Avail
+    Avail -->|"no"| Fallback
+    Avail -->|"yes"| Send
+    Send --> Got
+    Got -->|"429 rate limited"| Fallback
+    Got -->|"timeout, empty reply or other error"| TriesLeft
+    Got -->|"a reply"| Guard
+    Guard -->|"pass"| Use
+    Guard -->|"fail"| TriesLeft
+    TriesLeft -->|"yes: retry once, telling Gemini why the last reply was rejected"| Send
+    TriesLeft -->|"no"| Fallback
+
+    Guard -.->|"rules"| Guards
+    Truth -.->|"the guardrail compares against it"| Guard
+    Pytest -.->|"covers"| Guard
+    Eval -.->|"measures raw replies and shown text"| Guard
+    Eval -.->|"counts"| Got

@@ -12,6 +12,7 @@ def no_real_ai_calls(monkeypatch):
     non-AI game. Tests of the AI features mock ai_master.ask (and is_available) themselves.
     """
     monkeypatch.setattr(ai_master, "is_available", lambda: False)
+    monkeypatch.setattr(ai_master, "last_error", None)  # no failure state leaks between tests
 
 
 @pytest.fixture(autouse=True)

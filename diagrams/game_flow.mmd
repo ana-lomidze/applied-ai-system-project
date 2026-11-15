@@ -1,0 +1,36 @@
+flowchart TD
+    %% Game flow: what the player sees, from opening the game to the end of a round
+
+    Start(["Open the game"])
+    Setup["Choose a difficulty (sets the number range and the attempt limit) and turn the AI Game Master on or off"]
+    NewRound["New round: a secret number is picked, score starts at 100, attempts at 0"]
+    Guess["Player types a guess and clicks Submit"]
+    Count["The attempt is counted"]
+    Valid{"Whole number inside the range?"}
+    Invalid["Error message. Costs 5 points. No hint"]
+    Compare{"Compare the guess with the secret"}
+    Wrong["Too high or too low: costs 5 points"]
+    OutOf{"All attempts used up?"}
+    Lost["Game over: score is 0 and the secret is revealed. No hint"]
+    Hint["Hint: go higher or lower. In the Game Master's voice with the AI on, plain text with it off"]
+    Won["Win: balloons, the remaining score is kept. The Game Master states the secret and the score, or a plain message with the AI off"]
+    Again(["New Game button"])
+
+    Start --> Setup
+    Setup --> NewRound
+    NewRound --> Guess
+    Guess --> Count
+    Count --> Valid
+    Valid -->|"no"| Invalid
+    Valid -->|"yes"| Compare
+    Compare -->|"correct"| Won
+    Compare -->|"wrong"| Wrong
+    Invalid --> OutOf
+    Wrong --> OutOf
+    OutOf -->|"yes"| Lost
+    OutOf -->|"no"| Hint
+    Hint --> Guess
+    Won --> Again
+    Lost --> Again
+    Again --> NewRound
+    Guess -.->|"changing the difficulty mid-round starts a new round"| NewRound

@@ -4,67 +4,100 @@ flowchart TD
     subgraph UI["Streamlit UI (app.py)"]
         Sidebar["Sidebar: difficulty, AI Game Master toggle"]
         Submit["Submit branch: guess entered"]
-        State[("st.session_state: secret, history, attempts, cached hint")]
-        Display["Display hint and game status"]
+        State[("st.session_state: secret, history, attempts, score, status, last hint result")]
+        Display["Display hint, win message and game status. Debug panel shows secret source, hint attempts and rejections"]
     end
 
     %% ---------- Deterministic core ----------
     subgraph CORE["Deterministic core (logic_utils.py)"]
+        Parse{"parse_guess + range check: whole number inside the range?"}
         Check["check_guess(guess, secret): ground truth Too High / Too Low / Win"]
+        Score["update_score: a wrong or invalid guess costs 5 points"]
+        LastTry{"Used the last attempt without winning?"}
         Static["Static hint (fallback)"]
-        Validate["validate_hint(): 1) no secret number in text, 2) direction agrees with check_guess"]
-        GetAI["get_ai_hint(guess, secret, history, difficulty)"]
+        Validate["validate_hint(): 1) no secret number in text, 2) exactly one of higher / lower and it agrees with check_guess"]
+        GetAI["get_ai_hint(guess, secret, history, difficulty, attempts_left)"]
+        WinAI["get_ai_win_message(secret, score, attempts, difficulty)"]
+        ValidateWin["validate_win_message(): must contain the secret number and the final score"]
+        StaticWin["Static win message (fallback)"]
     end
 
     %% ---------- AI layer ----------
     subgraph AI["AI layer (ai_master.py)"]
-        Prompt["Game Master system prompt: playful host, never reveals number, hint style varies by difficulty"]
-        Client["Gemini client wrapper (key from GEMINI_API_KEY in .env)"]
+        Prompt["GAME_MASTER_PROMPT: smug game-show announcer, short roasts, hint style varies by difficulty, never reveals the number"]
+        WinPrompt["WIN_MESSAGE_PROMPT: same voice, but must state the secret number and final score"]
+        Client["Gemini client wrapper (key from GEMINI_API_KEY in .env). ask() returns None on any failure and records why: rate_limit, timeout or error"]
     end
     Gemini[["Gemini API"]]
 
     %% ---------- Testing / reliability ----------
     subgraph TEST["Reliability and testing"]
-        Pytest["pytest: test_game_logic.py, test_ai_hints.py (mocked client)"]
-        Eval["tests/eval_hints.py: simulated binary-search games; direction accuracy, leak rate, retry rate, avg guesses to win"]
+        Pytest["pytest: test_game_logic.py (game rules, app flow), test_ai_hints.py (guardrails, retries, fallbacks, mocked Gemini). No real API calls"]
+        Eval["tests/eval_hints.py (run by hand): simulated binary-search games; direction accuracy, leak rate, retry and fallback rate, API failures, avg guesses to win"]
     end
 
-    %% ---------- Secret selection (first load / New Game) ----------
+    %% ---------- Secret selection (first load / New Game / difficulty change) ----------
     Pick["pick_secret(low, high): range comes from difficulty. Code picks a random band, Gemini picks a number inside it"]
     CheckSecret{"Valid integer inside the band?"}
     Fallback["Fallback: random.randint over the full range"]
-    Sidebar -->|"first load / New Game, AI toggle ON and key present"| Pick
-    Sidebar -.->|"first load / New Game, AI toggle OFF or key missing"| Fallback
+    Sidebar -->|"first load / New Game / difficulty change, AI toggle ON and key present"| Pick
+    Sidebar -.->|"first load / New Game / difficulty change, AI toggle OFF or key missing"| Fallback
     Pick <-->|"request / number"| Gemini
     Pick --> CheckSecret
     CheckSecret -->|"yes"| State
-    CheckSecret -->|"no, after one retry"| Fallback
+    CheckSecret -->|"no after one retry, or rate limited: no retry"| Fallback
     Fallback --> State
 
-    %% ---------- Main flow ----------
+    %% ---------- Main flow: a guess ----------
     Player -->|"enters guess"| Submit
     Sidebar -->|"settings"| Submit
     Submit -->|"read secret and history"| State
-    Submit --> Check
-    Check -->|"outcome"| Static
-    Submit -->|"AI toggle ON and key present"| GetAI
-    Submit -.->|"AI toggle OFF or key missing"| Static
+    Submit --> Parse
+    Parse -->|"no: error message, costs an attempt, no hint"| Score
+    Parse -->|"yes"| Check
 
-    GetAI -->|"secret + history + outcome"| Prompt
+    Check -->|"Too High / Too Low"| Score
+    Score --> LastTry
+    LastTry -->|"yes: no hint, game over, score set to 0"| Display
+    LastTry -->|"no, AI toggle ON and key present"| GetAI
+    LastTry -.->|"no, AI toggle OFF or key missing"| Static
+
+    %% ---------- Main flow: a win ----------
+    Check -->|"Win, AI toggle ON and key present"| WinAI
+    Check -.->|"Win, AI toggle OFF or key missing"| StaticWin
+
+    %% ---------- AI hint path ----------
+    GetAI -->|"secret + history + outcome + attempts left"| Prompt
     Prompt --> Client
     Client <-->|"request / hint text"| Gemini
     Client -->|"candidate hint"| Validate
     Check -->|"expected direction"| Validate
 
     Validate -->|"pass"| Display
-    Validate -->|"fail, first time: retry once"| GetAI
-    Validate -->|"fail after retry or API error"| Static
+    Validate -->|"fail or timeout, first time: retry once"| GetAI
+    Validate -->|"fail after retry, or API error"| Static
+    Client -.->|"429 rate limited: no retry, fall back at once"| Static
     Static --> Display
-    Display -->|"cache hint (avoid duplicate calls on rerun)"| State
+
+    %% ---------- AI win message path ----------
+    WinAI -->|"secret + final score + attempts"| WinPrompt
+    WinPrompt --> Client
+    Client -->|"candidate win message"| ValidateWin
+    ValidateWin -->|"pass"| Display
+    ValidateWin -->|"fail or timeout, first time: retry once"| WinAI
+    ValidateWin -->|"fail after retry, or API error / 429"| StaticWin
+    StaticWin --> Display
+
+    Display -->|"store last hint result. The API is only called on Submit, so reruns never repeat a call"| State
     Display --> Player
 
     %% ---------- Testing links ----------
+    Pytest -.->|"covers"| Parse
     Pytest -.->|"covers"| Check
     Pytest -.->|"covers, mock Gemini"| Validate
+    Pytest -.->|"covers, mock Gemini"| ValidateWin
+    Pytest -.->|"covers, mock Gemini"| Pick
+    Eval -.->|"calls"| Pick
     Eval -.->|"calls"| GetAI
+    Eval -.->|"calls"| WinAI
     Eval -.->|"scores with"| Check

@@ -19,13 +19,17 @@ from logic_utils import (
 )
 
 
+RATE_LIMITED = object()  # a scripted reply meaning "Gemini answered 429"
+
+
 @pytest.fixture
 def fake_ai(monkeypatch):
     """Make the AI 'available' and feed it scripted replies.
 
     Usage: calls = fake_ai(["reply 1", "reply 2"])
-    Each ask() consumes one reply (None simulates an API failure). `calls` records
-    every request as {"prompt", "system", "json_output"}.
+    Each ask() consumes one reply. None simulates a timeout, and RATE_LIMITED simulates a
+    429; both return None, like the real ask(), and set ai_master.last_error the way it
+    does. `calls` records every request as {"prompt", "system", "json_output"}.
     """
 
     def install(replies):
@@ -34,7 +38,12 @@ def fake_ai(monkeypatch):
 
         def ask(prompt, system=ai_master.GAME_MASTER_PROMPT, json_output=False):
             calls.append({"prompt": prompt, "system": system, "json_output": json_output})
-            return next(remaining)
+            reply = next(remaining)
+            if reply is RATE_LIMITED:
+                monkeypatch.setattr(ai_master, "last_error", "rate_limit")
+                return None
+            monkeypatch.setattr(ai_master, "last_error", None if reply is not None else "timeout")
+            return reply
 
         monkeypatch.setattr(ai_master, "is_available", lambda: True)
         monkeypatch.setattr(ai_master, "ask", ask)
@@ -404,3 +413,93 @@ def test_ask_returns_none_on_any_api_error(real_ask, error):
 
 def test_ask_returns_none_without_a_key():
     assert ai_master.ask("hi") is None  # conftest: AI unavailable, no client is created
+
+
+# ---------------------------------------------------------------------------
+# Rate limits (429): no instant retry, fall back right away
+# ---------------------------------------------------------------------------
+class _ApiError(Exception):
+    """Stands in for google.genai's APIError, which carries an HTTP-style .code."""
+
+    def __init__(self, code, message):
+        super().__init__(f"{code} {message}")
+        self.code = code
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (_ApiError(429, "RESOURCE_EXHAUSTED. quota exceeded"), "rate_limit"),
+        (RuntimeError("RESOURCE_EXHAUSTED"), "rate_limit"),  # recognised by text as well
+        (_ApiError(504, "DEADLINE_EXCEEDED"), "timeout"),
+        (TimeoutError("slow"), "timeout"),
+        (RuntimeError("request timed out"), "timeout"),
+        (_ApiError(503, "UNAVAILABLE. high demand"), "error"),
+        (ValueError("bad"), "error"),
+    ],
+)
+def test_ask_records_why_it_failed(real_ask, error, expected):
+    real_ask(_FakeClient(error=error))
+    assert ai_master.ask("hi") is None
+    assert ai_master.last_error == expected
+
+
+def test_ask_last_error_for_empty_success_and_missing_key(real_ask, monkeypatch):
+    real_ask(_FakeClient(text="  "))
+    assert ai_master.ask("hi") is None
+    assert ai_master.last_error == "empty"
+
+    real_ask(_FakeClient(text="Go lower!"))
+    assert ai_master.ask("hi") == "Go lower!"
+    assert ai_master.last_error is None  # cleared by a successful call
+
+    monkeypatch.setattr(ai_master, "is_available", lambda: False)
+    assert ai_master.ask("hi") is None
+    assert ai_master.last_error == "no_key"
+
+
+def test_hint_is_not_retried_when_rate_limited(fake_ai):
+    calls = fake_ai([RATE_LIMITED, "Go lower."])  # the second reply must never be requested
+    result = get_ai_hint(50, 37, [], "Normal")
+    assert len(calls) == 1
+    assert (result.source, result.attempts) == ("static", 1)
+    assert result.failures == ["rate limited by Gemini"]
+    assert result.text == "📉 Go LOWER!"
+
+
+def test_hint_is_still_retried_after_a_timeout(fake_ai):
+    calls = fake_ai([None, "Go lower."])  # None = timeout, which is worth one retry
+    result = get_ai_hint(50, 37, [], "Normal")
+    assert len(calls) == 2
+    assert (result.source, result.attempts) == ("ai", 2)
+
+
+def test_hint_rate_limit_on_the_retry_is_reported(fake_ai):
+    fake_ai(["Go higher.", RATE_LIMITED])  # wrong direction, then rate limited on the retry
+    result = get_ai_hint(50, 37, [], "Normal")
+    assert result.source == "static"
+    assert "wrong direction" in result.failures[0]
+    assert result.failures[-1] == "rate limited by Gemini"
+
+
+def test_pick_secret_is_not_retried_when_rate_limited(fake_ai):
+    calls = fake_ai([RATE_LIMITED, '{"secret": 10}'])
+    secret, source = pick_secret(1, 50)
+    assert len(calls) == 1
+    assert source == "random"
+    assert 1 <= secret <= 50
+
+
+def test_pick_secret_is_still_retried_after_a_timeout(fake_ai, monkeypatch):
+    monkeypatch.setattr("logic_utils.random_band", lambda low, high: (21, 30))
+    calls = fake_ai([None, '{"secret": 24}'])
+    assert pick_secret(1, 50) == (24, "ai")
+    assert len(calls) == 2
+
+
+def test_win_message_is_not_retried_when_rate_limited(fake_ai):
+    calls = fake_ai([RATE_LIMITED, "It was 42 and 95."])
+    result = get_ai_win_message(42, 95, 3, "Normal")
+    assert len(calls) == 1
+    assert result.source == "static"
+    assert result.text == static_win_message(42, 95)
