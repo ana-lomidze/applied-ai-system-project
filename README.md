@@ -76,9 +76,10 @@ History: [50, 75]
 
 ## 🧪 Test Results
 
+### Testing results for test_game_logic.py and test_ai_hints.py
+Running `python -m pytest` never calls the real Gemini API. `tests/conftest.py` switches the AI off by default, and the AI tests use a mocked client. It also raises Streamlit's app-test timeout to 15 seconds.
 ```
-# Paste your pytest output here, e.g.:
-# pytest tests/
+# python -m pytest:
 collected 138 items
 
 tests\test_ai_hints.py ..................................................................... [ 50%]
@@ -86,6 +87,109 @@ tests\test_ai_hints.py .........................................................
 tests\test_game_logic.py ....................................                                [100%]
 
 ====================================== 138 passed in 14.88s =======================================
+```
+
+### Testing for eval_hints.py
+**Offline dry run with a fake Gemini**
+```
+# python tests/eval_hints.py --mock:
+game 20/20
+### AI Game Master evaluation (2026-11-15, MOCK (fake Gemini, offline), 20 games)
+
+| Metric | Result |
+|---|---|
+| **Secret picking** |  |
+| AI picks valid (JSON, integer, inside the band) | 100.0% (20/20) |
+| Games whose secret came from the AI (not the `randint` fallback) | 100.0% (20/20) |
+| Variety | 18 distinct secrets in 20 games |
+| **Hints, raw Gemini replies (before the guardrail)** | 76 replies |
+| Correct direction word (exactly one, right one) | 89.9% (62/69) |
+| Leaked the secret number | 5.8% (4/69) |
+| Correct direction AND no leak | 84.1% (58/69) |
+| **Hints, shown to the player (after guardrail, retry, fallback)** | 61 hints |
+| Needed a retry | 24.6% (15/61) |
+| Fell back to the static hint | 4.9% (3/61) |
+| AI hints shown with the correct direction | 100.0% (58/58) |
+| AI hints shown that leaked the secret | 0.0% (0/58) |
+| Static fallback hints with the correct direction | 100.0% (3/3) |
+| **Win message** |  |
+| Raw replies containing both the secret and the score | 90.0% (18/20) |
+| Shown message was AI-written | 100.0% (18/18) |
+| Needed a retry | 11.1% (2/18) |
+| **Gameplay (binary-search guesser)** |  |
+| Games won | 90.0% (18/20) |
+| Average guesses to win | 3.94 |
+| **API health** | 117 calls |
+| Calls with no usable reply | 6.8% (8/117) |
+| Error types | none |
+| Latency mean / p95 | 0.00s / 0.00s |
+| **Style of AI hints shown** |  |
+| Average words per hint | 5.0 |
+| Hints longer than two sentences | 0.0% (0/58) |
+| Openings | 2 distinct openings in 58 hints; most common: 'higher. achievement' x33, 'lower. achievement' x25 |
+| Hints containing "Achievement unlocked" | 100.0% (58/58) |
+
+| Difficulty | Games | Won | Avg guesses to win | Hints needing a retry | Hints using static fallback |
+|---|---|---|---|---|---|
+| Easy | 7 | 100.0% (7/7) | 3.00 | 21.4% (3/14) | 0.0% (0/14) |
+| Normal | 7 | 100.0% (7/7) | 4.57 | 16.0% (4/25) | 4.0% (1/25) |
+| Hard | 6 | 66.7% (4/6) | 4.50 | 36.4% (8/22) | 9.1% (2/22) |
+
+Rejected raw replies (examples):
+
+- hint: 'Go lower, obviously.' -> wrong or ambiguous direction
+- hint: 'Go lower, obviously.' -> wrong or ambiguous direction
+- hint: 'Is it 16? Maybe go lower.' -> leaked the secret
+- hint: 'Go lower, obviously.' -> wrong or ambiguous direction
+- hint: 'Go higher, obviously.' -> wrong or ambiguous direction
+- hint: 'Is it 3? Maybe go lower.' -> leaked the secret
+```
+
+**Real run against Gemini**
+```
+# python tests/eval_hints.py --games 10 --delay 5:
+game 10/10
+### AI Game Master evaluation (2026-11-15, live (gemini-3.1-flash-lite), 10 games)
+
+| Metric | Result |
+|---|---|
+| **Secret picking** |  |
+| AI picks valid (JSON, integer, inside the band) | 100.0% (10/10) |
+| Games whose secret came from the AI (not the `randint` fallback) | 100.0% (10/10) |
+| Variety | 8 distinct secrets in 10 games |
+| **Hints, raw Gemini replies (before the guardrail)** | 38 replies |
+| Correct direction word (exactly one, right one) | 100.0% (36/36) |
+| Leaked the secret number | 0.0% (0/36) |
+| Correct direction AND no leak | 100.0% (36/36) |
+| **Hints, shown to the player (after guardrail, retry, fallback)** | 36 hints |
+| Needed a retry | 5.6% (2/36) |
+| Fell back to the static hint | 0.0% (0/36) |
+| AI hints shown with the correct direction | 100.0% (36/36) |
+| AI hints shown that leaked the secret | 0.0% (0/36) |
+| Static fallback hints with the correct direction | n/a |
+| **Win message** |  |
+| Raw replies containing both the secret and the score | 100.0% (7/7) |
+| Shown message was AI-written | 100.0% (7/7) |
+| Needed a retry | 0.0% (0/7) |
+| **Gameplay (binary-search guesser)** |  |
+| Games won | 70.0% (7/10) |
+| Average guesses to win | 4.43 |
+| **API health** | 57 calls |
+| Calls with no usable reply | 7.0% (4/57) |
+| Error types | 503 UNAVAILABLE: 3, other: 1 |
+| Latency mean / p95 | 2.10s / 5.14s |
+| **Style of AI hints shown** |  |
+| Average words per hint | 14.6 |
+| Hints longer than two sentences | 0.0% (0/36) |
+| Openings | 18 distinct openings in 36 hints; most common: 'lower. you' x5, 'lower. your' x5 |
+| Hints containing "Achievement unlocked" | 0.0% (0/36) |
+
+| Difficulty | Games | Won | Avg guesses to win | Hints needing a retry | Hints using static fallback |
+|---|---|---|---|---|---|
+| Easy | 4 | 100.0% (4/4) | 4.00 | 16.7% (2/12) | 0.0% (0/12) |
+| Normal | 3 | 100.0% (3/3) | 5.00 | 0.0% (0/12) | 0.0% (0/12) |
+| Hard | 3 | 0.0% (0/3) | n/a | 0.0% (0/12) | 0.0% (0/12) |
+
 ```
 
 ## 🚀 Stretch Features
