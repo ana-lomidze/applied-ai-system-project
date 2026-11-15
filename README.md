@@ -126,17 +126,19 @@ flowchart TD
 
 ## How to Play
 **Three Difficulties**
-Easy
-- Range: 1-20
-- Attempts: 6
-Normal
-- Range: 1-100
-- Attempts: 8
-Hard 1-50
-- Range: 1-50
-- Attempts: 5
+- Easy
+   - Range: 1-20
+   - Attempts: 6
+- Normal
+   - Range: 1-100
+   - Attempts: 8
+- Hard 1-50
+   - Range: 1-50
+   - Attempts: 5
 
 Scoring starts at 100 and gets subtracted 5 for each wrong or invalid guess. The score becomes 0 once attempts run out. 
+
+Pick a difficuly. Try guessing the number with the guidence of the hints. Good luck!
 
 ## 🛠️ Setup
 
