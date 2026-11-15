@@ -321,3 +321,51 @@ def test_winning_on_the_last_attempt_keeps_the_score():
     at.button[SUBMIT].click().run()  # win on attempt 8 of 8
     assert at.session_state["status"] == "won"
     assert at.session_state["score"] == 65
+
+
+# Tests for hints on the last attempt: no hint (and no AI call) once the game is over.
+def test_no_hint_when_a_wrong_guess_uses_the_last_attempt():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    for i in range(8):  # Normal allows 8 attempts
+        at.text_input[0].set_value("1").run()
+        at.button[SUBMIT].click().run()
+        if i < 7:
+            assert at.warning, f"attempt {i + 1} should still get a hint"
+    assert at.session_state["status"] == "lost"
+    assert not at.warning  # no hint on the final, losing guess
+    assert any("Out of attempts" in e.value for e in at.error)
+
+
+def test_ai_hint_is_not_requested_on_the_last_attempt(monkeypatch):
+    import ai_master
+
+    calls = []
+
+    def fake_ask(prompt, **kwargs):
+        calls.append(prompt)
+        return "Higher. Try harder."
+
+    monkeypatch.setattr(ai_master, "is_available", lambda: True)
+    monkeypatch.setattr(ai_master, "ask", fake_ask)
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    for _ in range(8):
+        at.text_input[0].set_value("1").run()
+        at.button[SUBMIT].click().run()
+
+    hint_calls = [c for c in calls if "latest guess" in c]
+    assert len(hint_calls) == 7  # attempts 1-7 only, none for the 8th
+    assert at.session_state["status"] == "lost"
+
+
+def test_winning_on_the_last_attempt_still_shows_the_correct_message():
+    at = AppTest.from_file("app.py").run()
+    at.session_state["secret"] = 50
+    for _ in range(7):
+        at.text_input[0].set_value("1").run()
+        at.button[SUBMIT].click().run()
+    at.text_input[0].set_value("50").run()
+    at.button[SUBMIT].click().run()
+    assert at.session_state["status"] == "won"
+    assert at.warning  # the win still gets its message box

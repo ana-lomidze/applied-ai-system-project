@@ -8,12 +8,13 @@ from logic_utils import (
     update_score,
     pick_secret,
     get_ai_hint,
+    get_ai_win_message,
 )
 
-st.set_page_config(page_title="Glitchy Guesser", page_icon="🎮")
+st.set_page_config(page_title="Number Guessing Game", page_icon="🎮")
 
-st.title("🎮 Game Glitch Investigator")
-st.caption("An AI-generated guessing game. Something is off.")
+st.title("🎮 Number Guessing Game")
+st.caption("A number guessing game with an AI game master (or not; the AI game master can be toggled off).")
 
 st.sidebar.header("Settings")
 
@@ -174,7 +175,7 @@ def end_game_if_out_of_attempts():
         st.session_state.status = "lost"
         st.session_state.score = 0
         st.error(
-            f"Out of attempts! "
+            f"Out of attempts... "
             f"The secret was {st.session_state.secret}. "
             f"Score: {st.session_state.score}"
         )
@@ -208,9 +209,14 @@ if submit:
         # FIX: Removed the even-attempt str(secret) conversion that made hints compare alphabetically. Claude applied it so the secret is always an int.
         outcome, message = check_guess(guess_int, st.session_state.secret)
 
-        # Hints are a core part of the game, so one is always shown.
+        # Hints are a core part of the game, so one is always shown, except when this wrong
+        # guess used the last attempt: the game is over, so a hint would be pointless
+        # (and the AI call would be wasted).
         st.session_state.last_hint = None
-        if use_ai:
+        used_last_attempt = outcome != "Win" and st.session_state.attempts >= attempt_limit
+        if used_last_attempt:
+            pass
+        elif use_ai:
             # The API is only called here, inside `if submit`, so a Streamlit
             # rerun (e.g. toggling a widget) never repeats the call for a guess.
             with st.spinner("The Game Master is thinking..."):
@@ -219,6 +225,7 @@ if submit:
                     st.session_state.secret,
                     st.session_state.history[:-1],  # earlier guesses only
                     difficulty,
+                    attempts_left=attempt_limit - st.session_state.attempts,
                 )
             st.session_state.last_hint = result
             st.warning(result.text)
@@ -234,14 +241,25 @@ if submit:
         if outcome == "Win":
             st.balloons()
             st.session_state.status = "won"
-            st.success(
-                f"You won! The secret was {st.session_state.secret}. "
-                f"Final score: {st.session_state.score}"
-            )
+            if use_ai:
+                with st.spinner("The Game Master is judging your performance..."):
+                    win = get_ai_win_message(
+                        st.session_state.secret,
+                        st.session_state.score,
+                        st.session_state.attempts,
+                        difficulty,
+                    )
+                st.session_state.last_hint = win  # shown in the debug panel
+                st.success(win.text)
+            else:
+                st.success(
+                    f"You won! The secret was {st.session_state.secret}. "
+                    f"Final score: {st.session_state.score}"
+                )
         else:
             end_game_if_out_of_attempts()
 
 show_status()
 
 st.divider()
-st.caption("Built by an AI that claims this code is production-ready.")
+#st.caption("Built by an AI that claims this code is production-ready.")

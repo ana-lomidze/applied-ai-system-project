@@ -56,7 +56,7 @@ def check_guess(guess, secret):
     outcome examples: "Win", "Too High", "Too Low"
     """
     if guess == secret:
-        return "Win", "🎉 Correct!"
+        return "Win", "Correct."
 
     # FIX: Hint messages were swapped ("Too High" said "Go HIGHER"). Claude traced it to these returns and proposed the fix, I reviewed and approved it, then Claude applied it (same fix in the TypeError fallback below).
     try:
@@ -67,7 +67,7 @@ def check_guess(guess, secret):
     except TypeError:
         g = str(guess)
         if g == secret:
-            return "Win", "🎉 Correct!"
+            return "Win", "Correct."
         if g > secret:
             return "Too High", "📉 Go LOWER!"
         return "Too Low", "📈 Go HIGHER!"
@@ -194,9 +194,34 @@ class HintResult:
     failures: list = field(default_factory=list)  # why each rejected attempt failed
 
 
-def get_ai_hint(guess: int, secret: int, history, difficulty: str) -> HintResult:
+def _ask_validated(prompt: str, validate, static_text: str, system: str) -> HintResult:
+    """
+    Ask Gemini, check the reply with validate(reply) -> (ok, reason), and retry once
+    (telling Gemini what was wrong). After two failures, return static_text instead,
+    so a bad or failed AI answer never reaches the player.
+    """
+    result = HintResult(static_text, "static")
+    for _ in range(2):  # first try + one retry
+        result.attempts += 1
+        reply = ai_master.ask(prompt, system=system)
+        if reply is None:
+            ok, reason = False, "no reply from Gemini"
+        else:
+            ok, reason = validate(reply)
+        if ok:
+            result.text, result.source = reply.strip(), "ai"
+            return result
+        result.failures.append(reason)
+        prompt += f"\n(Your previous reply was rejected: {reason}. Try again.)"
+    return result
+
+
+def get_ai_hint(guess: int, secret: int, history, difficulty: str,
+                attempts_left=None) -> HintResult:
     """
     Return a hint for `guess`. history = EARLIER guesses (not including this one).
+    attempts_left (optional) is how many attempts remain after this guess, so the
+    Game Master can tease the player about it.
 
     check_guess() decides the outcome. Gemini only words the hint, and the result
     is validated. One retry (told what was wrong), then falls back to the static
@@ -207,25 +232,64 @@ def get_ai_hint(guess: int, secret: int, history, difficulty: str) -> HintResult
         return HintResult(static_message, "static")
 
     earlier = [g for g in history if isinstance(g, int)]
+    attempts_line = (
+        "" if attempts_left is None else f"Attempts left after this guess: {attempts_left}\n"
+    )
     prompt = (
         f"Secret number: {secret}\n"
         f"Difficulty: {difficulty}\n"
         f"Player's latest guess: {guess} ({outcome})\n"
         f"Earlier guesses: {earlier}\n"
+        f"{attempts_line}"
         "Write the hint now."
     )
+    return _ask_validated(
+        prompt,
+        lambda reply: validate_hint(reply, secret, outcome),
+        static_message,
+        ai_master.GAME_MASTER_PROMPT,
+    )
 
-    result = HintResult(static_message, "static")
-    for _ in range(2):  # first try + one retry
-        result.attempts += 1
-        reply = ai_master.ask(prompt)
-        if reply is None:
-            ok, reason = False, "no reply from Gemini"
-        else:
-            ok, reason = validate_hint(reply, secret, outcome)
-        if ok:
-            result.text, result.source = reply.strip(), "ai"
-            return result
-        result.failures.append(reason)
-        prompt += f"\n(Your previous reply was rejected: {reason}. Try again.)"
-    return result
+
+def static_win_message(secret: int, score: int) -> str:
+    """The plain win message (used when the AI is off or fails)."""
+    return f"You won! The secret was {secret}. Final score: {score}"
+
+
+def validate_win_message(text, secret: int, score: int):
+    """
+    Guardrail for an AI win message. Returns (ok, reason).
+    Unlike a hint, it MUST state both the secret number and the final score (as digits).
+    """
+    if not text or not text.strip():
+        return False, "empty message"
+    for label, number in (("the secret number", secret), ("the final score", score)):
+        if not re.search(rf"(?<![\d.]){number}(?![\d])", text):
+            return False, f"must state {label} ({number}) as digits"
+    return True, ""
+
+
+def get_ai_win_message(secret: int, score: int, attempts: int, difficulty: str) -> HintResult:
+    """
+    Return the message shown when the player wins. With the AI on, the Game Master
+    reveals the secret number and the final score in character. The reply is validated
+    (both numbers must appear); one retry, then the plain static message.
+    """
+    static_text = static_win_message(secret, score)
+    if not ai_master.is_available():
+        return HintResult(static_text, "static")
+
+    prompt = (
+        f"The player just WON.\n"
+        f"Secret number: {secret}\n"
+        f"Final score (out of 100): {score}\n"
+        f"Attempts used: {attempts}\n"
+        f"Difficulty: {difficulty}\n"
+        "Write the win message now."
+    )
+    return _ask_validated(
+        prompt,
+        lambda reply: validate_win_message(reply, secret, score),
+        static_text,
+        ai_master.WIN_MESSAGE_PROMPT,
+    )
