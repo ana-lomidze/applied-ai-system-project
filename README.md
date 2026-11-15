@@ -14,6 +14,11 @@ Now, Gemini is the game master of the guessing game. So now, Gemini picks the se
 The AI is optional. A sidebar toggle turns it off for a plain game. The plain game is also the safety net: if there's no API key in `.env`, or a Gemini call fails, the game quietly falls back to the non-AI version, so the AI can never break a round.
 
 ## Architecture
+
+[Game Diagram](https://github.com/ana-lomidze/applied-ai-system-project/blob/main/diagrams/game_flow.mmd)
+
+[Reliability Diagram](https://github.com/ana-lomidze/applied-ai-system-project/blob/main/diagrams/reliability_flow.mmd)
+
 ```mermaid
 flowchart TD
     %% ---------- User / UI layer ----------
