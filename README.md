@@ -1,4 +1,4 @@
-# 🎮 Game Glitch Investigator: The Impossible Guesser
+# 🎮 Number Guessing Game with AI Game Master
 
 ## Base Project
 
@@ -37,7 +37,7 @@ Gemini only ever writes the wording. The code decides what is true.
 [Reliability Diagram](https://github.com/ana-lomidze/applied-ai-system-project/blob/main/diagrams/reliability_flow.mmd)
 
 
-**Whole System Diagram**
+**Whole System Diagram:**
 ```mermaid
 flowchart TD
     %% ---------- User / UI layer ----------
