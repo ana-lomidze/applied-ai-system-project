@@ -13,6 +13,23 @@ Now, Gemini is the game master of the guessing game. So now, Gemini picks the se
 
 The AI is optional. A sidebar toggle turns it off for a plain game. The plain game is also the safety net: if there's no API key in `.env`, or a Gemini call fails, the game quietly falls back to the non-AI version, so the AI can never break a round.
 
+Because an AI can be wrong, code stays in charge of correctness. `check_guess` decides whether a guess is too high, too low or correct, and Gemini only writes the wording. Every Gemini reply passes a guardrail before the player sees it. A hint must not contain the secret number (as digits or words) and must contain exactly one of "higher" or "lower", matching the real answer. A win message must state the secret number and the final score. A secret that Gemini picks must be a whole number inside the range provided to it. A reply that fails gets one retry, then the game falls back to the plain version. If Gemini reports a rate limit, it falls back immediately.
+
+### About the Game Master
+The Game Master is **not a fine-tuned model**. It's a general Gemini model (`gemini-3.1-flash-lite`) that I specialized with prompts, not by training it: a persona prompt for hints (`GAME_MASTER_PROMPT`), a second prompt for the win message (`WIN_MESSAGE_PROMPT`), and a structured JSON request for picking the secret number. Fine-tuning wasn't necessary or realistic for a project this size. What makes the model reliable here is the code around it: the guardrails, retries and fallbacks.
+
+### What the AI writes, and what doesn't come from it
+| | Written by Gemini at runtime | Written in the code |
+|---|---|---|
+| Secret number | Picked inside a random band | `random.randint` fallback |
+| Hints | In the Game Master's voice | The plain "Go higher / Go lower" fallback |
+| Win message | States the secret and the final score | The plain win message |
+| Correct, too high or too low | | `check_guess` |
+| Score | | `update_score` |
+| Intro caption, footer, "Out of attempts..." and error messages | | Written by me, static text |
+
+Gemini only ever writes the wording. The code decides what is true.
+
 ## Architecture
 
 [Game Diagram](https://github.com/ana-lomidze/applied-ai-system-project/blob/main/diagrams/game_flow.mmd)
@@ -223,11 +240,20 @@ tests\test_game_logic.py ....................................                   
 ```
 
 ### Testing for `eval_hints.py`
-**Offline dry run with a fake Gemini**
+`tests/eval_hints.py` is a script I run by hand (pytest ignores it). It plays simulated games using a scripted binary-search guesser that follows the true outcome. Gemini picks the secret, writes a hint after each wrong guess and writes the win message. The script records every raw reply, re-checks it independently, and reports accuracy and leak rates **before** the guardrail and for what was actually **shown** to the player **after** it.
+
+```bash
+python tests/eval_hints.py --games 10 --delay 5
 ```
-# python tests/eval_hints.py --mock:
-game 20/20
-### AI Game Master evaluation (2026-11-15, MOCK (fake Gemini, offline), 20 games)
+A real run takes about 7 minutes for 10 games and about 14 for 20, and it uses the free-tier quota. `--delay 5` waits 5 seconds between calls, because the free tier returns 429 rate-limit errors for fast callers. `--mock` runs offline.
+
+**Offline dry run with a fake Gemini (20 games)**
+
+```bash
+python tests/eval_hints.py --mock
+```
+
+#### AI Game Master evaluation (2026-11-15, MOCK (fake Gemini, offline), 20 games)
 
 | Metric | Result |
 |---|---|
@@ -276,13 +302,16 @@ Rejected raw replies (examples):
 - hint: 'Go lower, obviously.' -> wrong or ambiguous direction
 - hint: 'Go higher, obviously.' -> wrong or ambiguous direction
 - hint: 'Is it 3? Maybe go lower.' -> leaked the secret
+
+The mock run uses a fake Gemini with deliberate faults (leaks, wrong directions, failures). It shows that the guardrail turns about 84% clean raw replies into 100% clean shown hints. It does not measure Gemini. The note on Hard mode below applies to this table too.
+
+**Real run against Gemini (10 games)**
+
+```bash
+python tests/eval_hints.py --games 10 --delay 5
 ```
 
-**Real run against Gemini**
-```
-# python tests/eval_hints.py --games 10 --delay 5:
-game 10/10
-### AI Game Master evaluation (2026-11-15, live (gemini-3.1-flash-lite), 10 games)
+#### AI Game Master evaluation (2026-11-15, live (gemini-3.1-flash-lite), 10 games)
 
 | Metric | Result |
 |---|---|
@@ -323,4 +352,10 @@ game 10/10
 | Normal | 3 | 100.0% (3/3) | 5.00 | 0.0% (0/12) | 0.0% (0/12) |
 | Hard | 3 | 0.0% (0/3) | n/a | 0.0% (0/12) | 0.0% (0/12) |
 
-```
+**Why Hard looks bad:** the guesser is a binary search, and it ignores the hints. A binary search over 1-50 can need 6 guesses, but Hard only allows 5. So Hard games can be lost by the guesser alone, whatever the AI does. Easy (1-20, needs at most 5 guesses, 6 allowed) and Normal (1-100, needs at most 7, 8 allowed) are always winnable. A low Hard win rate is a property of the simulation, not an AI failure.
+
+**Reading the results (10 games, `gemini-3.1-flash-lite`):**
+- Gemini's hints were correct every time: all 36 raw replies had the right direction word and none leaked the secret. The guardrail never had to reject a reply for its content in this run, so its measured value was the retry and fallback when API calls failed.
+- Secret picking was valid 10 out of 10 times, with 8 distinct secrets in 10 games.
+- 4 of 57 calls (7%) got no usable reply, because of 503 "unavailable" errors and one other error. 2 of 36 hints needed a retry, and none fell back to the plain hint.
+- The sample is small. "No failures in 36 replies" is not "never fails".
