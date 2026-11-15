@@ -101,3 +101,7 @@ flowchart TD
     Eval -.->|"calls"| GetAI
     Eval -.->|"calls"| WinAI
     Eval -.->|"scores with"| Check
+
+    %% Colours: amber = the plain fallbacks used when the AI is off, unavailable or fails (explicit text colours so they read in light and dark mode)
+    classDef warn fill:#b26a00,stroke:#7a4a00,stroke-width:2px,color:#ffffff
+    class Static,StaticWin,Fallback warn

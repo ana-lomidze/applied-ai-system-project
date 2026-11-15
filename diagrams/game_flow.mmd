@@ -34,3 +34,9 @@ flowchart TD
     Lost --> Again
     Again --> NewRound
     Guess -.->|"changing the difficulty mid-round starts a new round"| NewRound
+
+    %% Colours: green = the round ends well, red = the round is lost (explicit text colours so they read in light and dark mode)
+    classDef good fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef bad fill:#b3261e,stroke:#7f1d1d,stroke-width:2px,color:#ffffff
+    class Won good
+    class Lost bad

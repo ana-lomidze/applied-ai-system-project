@@ -124,7 +124,7 @@ def show_status():
             last_hint = st.session_state.get("last_hint")
             if last_hint is not None:
                 st.write("Last hint source:", HINT_SOURCE_LABELS.get(last_hint.source, last_hint.source))
-                st.write("Hint attempts:", last_hint.attempts) #shows how many attempts the hint took to have the correct direction and not leak the secret number (guardrail)
+                st.write("Gemini hint attempts:", last_hint.attempts) #shows how many attempts the hint took to have the correct direction and not leak the secret number (guardrail)
                 st.write("Hint rejections:", last_hint.failures)
             st.write("Attempts:", st.session_state.attempts)
             st.write("Score:", st.session_state.score)
