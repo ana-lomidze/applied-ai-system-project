@@ -1,82 +1,208 @@
 # 🎮 Game Glitch Investigator: The Impossible Guesser
 
-## 🚨 The Situation
+## Base Project
 
-You asked an AI to build a simple "Number Guessing Game" using Streamlit.
-It wrote the code, ran away, and now the game is unplayable. 
+This project extends [The Game Glitch Investigator](https://github.com/ana-lomidze/ai110-module1show-gameglitchinvestigator-starter).
 
-- You can't win.
-- The hints lie to you.
-- The secret number seems to have commitment issues.
+The original task was to debug a given codebase for a game an AI built. The game is a simple "Number Guessing Game" using Streamlit. The orginal codebase was buggy. The player couldn't win, the hints weren't guiding the user correctly, and a new game couldn't be started despite there being a 'New Game' button on the page.
+
+## This Version
+In this version of the project, I have added an AI component to this game.
+
+Now, Gemini is the game master of the guessing game. So now, Gemini picks the secret number, gives hints to the player, and writes the win message. I wanted the game master to have a playful persona, like the AI in the popular book series *Dungeon Crawler Carl* by Matt Dinniman.
+
+The AI is optional. A sidebar toggle turns it off for a plain game. The plain game is also the safety net: if there's no API key in `.env`, or a Gemini call fails, the game quietly falls back to the non-AI version, so the AI can never break a round.
+
+## Architecture
+```mermaid
+flowchart TD
+    %% ---------- User / UI layer ----------
+    Player(["Player"])
+    subgraph UI["Streamlit UI (app.py)"]
+        Sidebar["Sidebar: difficulty, AI Game Master toggle"]
+        Submit["Submit branch: guess entered"]
+        State[("st.session_state: secret, history, attempts, score, status, last hint result")]
+        Display["Display hint, win message and game status. Debug panel shows secret source, hint attempts and rejections"]
+    end
+
+    %% ---------- Deterministic core ----------
+    subgraph CORE["Deterministic core (logic_utils.py)"]
+        Parse{"parse_guess + range check: whole number inside the range?"}
+        Check["check_guess(guess, secret): ground truth Too High / Too Low / Win"]
+        Score["update_score: a wrong or invalid guess costs 5 points"]
+        LastTry{"Used the last attempt without winning?"}
+        Static["Static hint (fallback)"]
+        Validate["validate_hint(): 1) no secret number in text, 2) exactly one of higher / lower and it agrees with check_guess"]
+        GetAI["get_ai_hint(guess, secret, history, difficulty, attempts_left)"]
+        WinAI["get_ai_win_message(secret, score, attempts, difficulty)"]
+        ValidateWin["validate_win_message(): must contain the secret number and the final score"]
+        StaticWin["Static win message (fallback)"]
+    end
+
+    %% ---------- AI layer ----------
+    subgraph AI["AI layer (ai_master.py)"]
+        Prompt["GAME_MASTER_PROMPT: smug game-show announcer, short roasts, hint style varies by difficulty, never reveals the number"]
+        WinPrompt["WIN_MESSAGE_PROMPT: same voice, but must state the secret number and final score"]
+        Client["Gemini client wrapper (key from GEMINI_API_KEY in .env). ask() returns None on any failure and records why: rate_limit, timeout or error"]
+    end
+    Gemini[["Gemini API"]]
+
+    %% ---------- Testing / reliability ----------
+    subgraph TEST["Reliability and testing"]
+        Pytest["pytest: test_game_logic.py (game rules, app flow), test_ai_hints.py (guardrails, retries, fallbacks, mocked Gemini). No real API calls"]
+        Eval["tests/eval_hints.py (run by hand): simulated binary-search games; direction accuracy, leak rate, retry and fallback rate, API failures, avg guesses to win"]
+    end
+
+    %% ---------- Secret selection (first load / New Game / difficulty change) ----------
+    Pick["pick_secret(low, high): range comes from difficulty. Code picks a random band, Gemini picks a number inside it"]
+    CheckSecret{"Valid integer inside the band?"}
+    Fallback["Fallback: random.randint over the full range"]
+    Sidebar -->|"first load / New Game / difficulty change, AI toggle ON and key present"| Pick
+    Sidebar -.->|"first load / New Game / difficulty change, AI toggle OFF or key missing"| Fallback
+    Pick <-->|"request / number"| Gemini
+    Pick --> CheckSecret
+    CheckSecret -->|"yes"| State
+    CheckSecret -->|"no after one retry, or rate limited: no retry"| Fallback
+    Fallback --> State
+
+    %% ---------- Main flow: a guess ----------
+    Player -->|"enters guess"| Submit
+    Sidebar -->|"settings"| Submit
+    Submit -->|"read secret and history"| State
+    Submit --> Parse
+    Parse -->|"no: error message, costs an attempt, no hint"| Score
+    Parse -->|"yes"| Check
+
+    Check -->|"Too High / Too Low"| Score
+    Score --> LastTry
+    LastTry -->|"yes: no hint, game over, score set to 0"| Display
+    LastTry -->|"no, AI toggle ON and key present"| GetAI
+    LastTry -.->|"no, AI toggle OFF or key missing"| Static
+
+    %% ---------- Main flow: a win ----------
+    Check -->|"Win, AI toggle ON and key present"| WinAI
+    Check -.->|"Win, AI toggle OFF or key missing"| StaticWin
+
+    %% ---------- AI hint path ----------
+    GetAI -->|"secret + history + outcome + attempts left"| Prompt
+    Prompt --> Client
+    Client <-->|"request / hint text"| Gemini
+    Client -->|"candidate hint"| Validate
+    Check -->|"expected direction"| Validate
+
+    Validate -->|"pass"| Display
+    Validate -->|"fail or timeout, first time: retry once"| GetAI
+    Validate -->|"fail after retry, or API error"| Static
+    Client -.->|"429 rate limited: no retry, fall back at once"| Static
+    Static --> Display
+
+    %% ---------- AI win message path ----------
+    WinAI -->|"secret + final score + attempts"| WinPrompt
+    WinPrompt --> Client
+    Client -->|"candidate win message"| ValidateWin
+    ValidateWin -->|"pass"| Display
+    ValidateWin -->|"fail or timeout, first time: retry once"| WinAI
+    ValidateWin -->|"fail after retry, or API error / 429"| StaticWin
+    StaticWin --> Display
+
+    Display -->|"store last hint result. The API is only called on Submit, so reruns never repeat a call"| State
+    Display --> Player
+
+    %% ---------- Testing links ----------
+    Pytest -.->|"covers"| Parse
+    Pytest -.->|"covers"| Check
+    Pytest -.->|"covers, mock Gemini"| Validate
+    Pytest -.->|"covers, mock Gemini"| ValidateWin
+    Pytest -.->|"covers, mock Gemini"| Pick
+    Eval -.->|"calls"| Pick
+    Eval -.->|"calls"| GetAI
+    Eval -.->|"calls"| WinAI
+    Eval -.->|"scores with"| Check
+
+    %% Colours: amber = the plain fallbacks used when the AI is off, unavailable or fails (explicit text colours so they read in light and dark mode)
+    classDef warn fill:#b26a00,stroke:#7a4a00,stroke-width:2px,color:#ffffff
+    class Static,StaticWin,Fallback warn
+```
+
+## How to Play
+**Three Difficulties**
+Easy
+- Range: 1-20
+- Attempts: 6
+Normal
+- Range: 1-100
+- Attempts: 8
+Hard 1-50
+- Range: 1-50
+- Attempts: 5
+
+Scoring starts at 100 and gets subtracted 5 for each wrong or invalid guess. The score becomes 0 once attempts run out. 
 
 ## 🛠️ Setup
 
-1. Install dependencies: `pip install -r requirements.txt`
-2. Run the broken app: `python -m streamlit run app.py`
+1. Create and activate a virtual environment:
 
-## 🕵️‍♂️ Your Mission
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate        # Windows
+   source .venv/bin/activate     # macOS / Linux
+   ```
 
-1. **Play the game.** Open the "Developer Debug Info" tab in the app to see the secret number. Try to win.
-2. **Find the State Bug.** Why does the secret number change every time you click "Submit"? Ask ChatGPT: *"How do I keep a variable from resetting in Streamlit when I click a button?"*
-3. **Fix the Logic.** The hints ("Higher/Lower") are wrong. Fix them.
-4. **Refactor & Test.** - Move the logic into `logic_utils.py`.
-   - Run `pytest` in your terminal.
-   - Keep fixing until all tests pass!
+2. Install dependencies:
 
-## 📝 Document Your Experience
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-- [✅] Describe the game's purpose.
-User is supposed to guess the Secret Number in a certain amount of attempts. Attempts are determined by the difficulty setting of the game.
+3. (For the AI Game Master) Add your Gemini API key:
+   - Get a free key from [Google AI Studio](https://aistudio.google.com/) ("Get API key").
+   - Copy `.env.example` to `.env` and put your key after `GEMINI_API_KEY=`:
 
-If the user guesses too high, the game gives the hint "Go LOWER!"
-If the user guesses too low, the game gives the hint "Go HIGHER!"
-If the user guesses correctly, the game says "Correct!" and "You've won!..."
+     ```bash
+     copy .env.example .env        # Windows
+     cp .env.example .env          # macOS / Linux
+     ```
 
-The game keeps track of the score as well. -5 points every wrong guess.
+   - `.env` is git-ignored, so your key is never committed. Never paste a key into the code or the README.
+   - Without a key the app still works as a plain game: the AI toggle is disabled, the secret comes from `random.randint` and hints are static.
 
-- [✅] Detail which bugs you found.
-1. Unable to start a new game when clicking 'New Game' button. The Secret number is set to a different number and Attempts is set to 0, but the History and Score in the Developer Debug Info section stays the same.
-2. Scoring is weird. When guessing the number correctly on first try, player don't get 100 (score of 70 on first try guess). The Score shown in Developer Debug Info and the Score shown to the player doesn't match up. Ex: Guessed on the 3rd attempt; score on the Dev section says -10, player gets the message of Final score: 40. (If we assume that 70 is the highest player can get, 70 - 10 = 60 not 40).
-After looking at the code, the score is calculated so weird!
-3. Hints are given incorrectly. They say the opposite of what the player needs.
-4. Each mention of "Attempts" shows something different. Ex: upon first running the game (Normal Difficulty by default), in Settings it shows 8 Attempts, on the instructions of the game right under "Make a guess" it says "Guess a number between 1 and 100. Attempts left:  7", and on the Developer Debug Info tab it said the player has 1 Attempt (no guessing has been done yet).
-5. When a user guesses a number outside of 1-100 there is no error message for that. The game reads it as a regular guess.
-6. Difficulty isn't working as intended. The code shows that the secret number should be in between different ranges, but the game doesn't account for this (Ex: Difficulty: Hard (Max should be 50); Secret: 54). The Settings bar on the side shows the expected range, but the info banner under "Make a guess" doesn't show the new range, even though the number of allowed attempts on the banner gets updated upon difficulty change.
-7. The Developer Debug Info tab is lagged behind. So if player wins on second try, the stats shown in the dev tab are one guess behind.
-8. Changing the difficulty doesn't automatically start a new game. Ex: once launching the game the difficulty is normal, secret number is 90. I change the difficulty to easy, the secret number is still 90.
+4. Run the app:
 
-- [✅] Explain what fixes you applied.
-1. Fixed the "New Game" button bug. Clicking the button now starts a new round successfully and clears the stats shown in the Developer Debug Info tab
-2. Fixed the hints being opposite. Now the hints guides the user correctly.
-3. Fixed the score being calculated weridly. Now the score subtracts 5 after every wrong attempt.
-4. Fixed the Developer Debug Info tab being one round behind. Now the information displayed there shows upon gues submission.
+   ```bash
+   python -m streamlit run app.py
+   ```
 
 ## 📸 Demo Walkthrough
 
-Describe your fixed game in numbered steps so a reader can follow along without watching a video:
+1. After launching the game, the crawler guesses 50.
+2. The AI gives a snarky hint to go higher. (AI is automatically turned on upon application execution, as long as the key is in the .env file)
+3. The crawler guesses 75, and the game shows balloons and says "Correct." The crawler reads the AI's witty comment along with their score (95).
+4. They expand the Developer Debug Info section and see the following:
 
-1. After launching the game, the user guesses 50.
-2. The game gives a hint "Go HIGHER"
-3. The user guesses 75, and the game shows balloons and says "Correct!" The user sees on the bottom banner that the have gotten a score of 95.
-4. They expand the Developer Debug Info section and see that the following:
-Secret: 75
-Attempts: 2
-Score: 95
-Difficulty: Normal
-History: [50, 75]
-5. The user plays another round with the Developer Debug Info section Expanded. They click the "New Game" button.
-6. The Developer Debug Info shows that a new Secret number is picked, attempts is reset to 0, score is set to 100, and history is cleared. The new secret number is 33.
-7. The user guesses 20. The game gives the hint "Go HIGHER!"
+   ```
+   Secret: 75
+   Secret picked by: AI
+   Last hint source: AI
+   Gemini hint attempts: 1
+   Hint rejections: []
+   Attempts: 2
+   Score: 95
+   Difficulty: Normal
+   History: [50, 75]
+   ```
+
+   "Secret picked by" is `AI` or `randint`, depending on the AI Game Master toggle. The "hint" lines describe the last AI message: here it was the win message, written by Gemini on its first try (1 attempt) with nothing rejected by the guardrail.
+5. The crawler plays another round with the Developer Debug Info section expanded. They click the "New Game" button.
+6. The Developer Debug Info shows that a new secret number is picked, attempts is reset to 0, score is set to 100, and history is cleared. The new secret number is 33.
+7. The crawler guesses 20. The AI gives the corresponding hint (along with a snarky comment, of course).
 8. The Developer Debug Info tab updates accordingly.
-9. The use guesses 50. The game gives the hint "Go LOWER!"
+9. The crawler guesses 50. The AI gives the hint to go lower.
 10. The Developer Debug Info tab updates accordingly.
-11. The user guesses 33. The game celebrates, "Correct!"
-
-**Screenshot** *(optional)*: <!-- Insert a screenshot of your fixed, winning game here -->
+11. The crawler guesses 33. The game says, "Correct." The AI gives the crawler their score + snarky comment.
 
 ## 🧪 Test Results
 
-### Testing results for test_game_logic.py and test_ai_hints.py
+### Testing results for `test_game_logic.py` and `test_ai_hints.py`
 Running `python -m pytest` never calls the real Gemini API. `tests/conftest.py` switches the AI off by default, and the AI tests use a mocked client. It also raises Streamlit's app-test timeout to 15 seconds.
 ```
 # python -m pytest:
@@ -89,7 +215,7 @@ tests\test_game_logic.py ....................................                   
 ====================================== 138 passed in 14.88s =======================================
 ```
 
-### Testing for eval_hints.py
+### Testing for `eval_hints.py`
 **Offline dry run with a fake Gemini**
 ```
 # python tests/eval_hints.py --mock:
@@ -191,7 +317,3 @@ game 10/10
 | Hard | 3 | 0.0% (0/3) | n/a | 0.0% (0/12) | 0.0% (0/12) |
 
 ```
-
-## 🚀 Stretch Features
-
-- [ ] [If you choose to complete Challenge 4, describe the Enhanced UI changes here — a screenshot is optional]
