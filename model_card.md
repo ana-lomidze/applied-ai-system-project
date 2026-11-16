@@ -12,7 +12,9 @@ The risks for this project are fairly low, but one thing that could be misused i
 
 # My Experience Collaborating With AI
 **Accepted**
+
 Giving Gemini a random range to pick the secret number from
 
 **Rejected**
+
 When I first mentioned I wanted the AI game master to be like the AI in *Dungeon Crawler Carl*, Claude made the prompt for Gemini so specific to the book that I felt like a regular player of the game would not understand what the hints meant. There were even hints that made zero sense to me. I told Claude to remove certain phrases entirely.

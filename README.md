@@ -30,6 +30,8 @@ The Game Master is **not a fine-tuned model**. It's a general Gemini model (`gem
 
 Gemini only ever writes the wording. The code decides what is true.
 
+[My Reflection](https://github.com/ana-lomidze/applied-ai-system-project/blob/main/model_card.md)
+
 ## Architecture
 
 [Game Diagram](https://github.com/ana-lomidze/applied-ai-system-project/blob/main/diagrams/game_flow.mmd)
