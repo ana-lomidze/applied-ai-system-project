@@ -1,4 +1,5 @@
 # 💭 Reflection: Game Glitch Investigator
+# Disclaimer: this section is from the base project. Nothing besides this statement has been added since I worked on the base project.
 
 Answer each question in 3 to 5 sentences. Be specific and honest about what actually happened while you worked. This is about your process, not trying to sound perfect.
 
